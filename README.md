@@ -14,7 +14,7 @@ assets or branding. See [FEATURES.md](FEATURES.md) for what is covered and what 
 | What | Link |
 |---|---|
 | Windows app (unzip, run `PhenoForge.exe`) | [PhenoForge-windows-x64.zip](https://github.com/agyeyapratap-sketch/PhenoForge/releases/latest/download/PhenoForge-windows-x64.zip) |
-| Illustrated capture SOPs (iPhone, Android, DSLR, 3D roots, turntable) | [PhenoForge-SOPs.zip](https://github.com/agyeyapratap-sketch/PhenoForge/releases/latest/download/PhenoForge-SOPs.zip) |
+| Illustrated capture SOPs (iPhone, Android, DSLR, 3D roots, turntable, iPhone roots on a spike) | [PhenoForge-SOPs.zip](https://github.com/agyeyapratap-sketch/PhenoForge/releases/latest/download/PhenoForge-SOPs.zip) |
 | Turntable print files (Bambu Studio 3MF, STL, OpenSCAD, Pi script) | [PhenoForge-turntable-print-files.zip](https://github.com/agyeyapratap-sketch/PhenoForge/releases/latest/download/PhenoForge-turntable-print-files.zip) |
 
 All versions are on the [Releases page](https://github.com/agyeyapratap-sketch/PhenoForge/releases).
@@ -76,6 +76,7 @@ python -m phenoforge --help     # command line
    - `SOP-3_DSLR_mirrorless.pdf`
    - `SOP-4_3D_roots.pdf`
    - `SOP-5_Turntable_rig.pdf` (build, print and run the turntable)
+   - `SOP-6_iPhone_roots_spike.pdf` (quick iPhone root scans on a spike stand)
    - `SOP-0_Overview_capture_to_traits.pdf` for the whole flow.
 3. Import: Tools tab > Import from device, or `phenoforge capture <file|video|folder> --device auto`.
 4. Analyse: on the 3D analysis tab set the marker size and plant mode, then Run. Or from

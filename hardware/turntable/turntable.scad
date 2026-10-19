@@ -195,6 +195,22 @@ module parts_layout() {
     for (i = [0 : 3]) translate([-20 + i * 50, 260, 0]) color("SteelBlue") riser();
 }
 
+// Static spike stand (no turntable): hub on a heavy base, rod and stem cup, markers on the base.
+module spike_stand() {
+    // base and rod are painted / taped green so PhenoForge removes them automatically
+    color("LimeGreen") translate([-200, -200, -18]) cube([400, 400, 18]);
+    color("ForestGreen") crown_hub();
+    color("Green") cylinder(d = 8, h = 262);
+    color("Silver") translate([0, 0, 262]) cylinder(d1 = 8, d2 = 0.5, h = 30);   // sharpened spike tip
+    color("ForestGreen") translate([0, 0, 200]) stem_cup();                      // optional support collar
+    for (a = [45 : 90 : 360]) rotate(a) translate([140, 0, 0.5]) {
+        color("White") translate([-25, -25, 0]) cube([50, 50, 0.6]);
+        color("Black") for (i = [0 : 3], j = [0 : 3]) if ((i * 7 + j * 3 + a) % 3 == 0)
+            translate([-15 + i * 7.5, -15 + j * 7.5, 0.1]) cube([7.5, 7.5, 0.6]);
+        color("Black") difference() { translate([-21, -21, 0.05]) cube([42, 42, 0.6]); translate([-15, -15, -1]) cube([30, 30, 3]); }
+    }
+}
+
 module assembly() {
     color("SaddleBrown", 0.5) translate([-250, -250, -18]) cube([500, 500, 18]);           // base board
     for (a = [45 : 90 : 360]) rotate(a) translate([135, 0, 0]) rotate(90) color("SteelBlue") riser();
@@ -223,4 +239,5 @@ else if (part == "stem_cup") stem_cup();
 else if (part == "pot_ring") pot_ring();
 else if (part == "home_sensor_post") home_sensor_post();
 else if (part == "parts_layout") parts_layout();
+else if (part == "spike_stand") spike_stand();
 else assembly();

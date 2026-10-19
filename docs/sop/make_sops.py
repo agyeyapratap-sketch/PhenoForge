@@ -33,6 +33,7 @@ FIGURE_CREDITS = {
     "roots": "https://app.biorender.com/illustrations/53fe8fbd66876aab190cfa24",
     "workflow": "https://app.biorender.com/illustrations/a8401c1320ac7f644c979d35",
     "turntable": "https://app.biorender.com/illustrations/a2975abb81ffae11939a0145",
+    "spike": "https://app.biorender.com/illustrations/39c6091d1dab60274f047648",
 }
 
 ss = getSampleStyleSheet()
@@ -152,6 +153,7 @@ def overview():
         ["DSLR / mirrorless", "Highest detail, repeatable lab imaging, publications", "No: ArUco markers", "RAW or JPEG photos reconstructed in the app", "SOP-3"],
         ["Any camera, excavated roots", "Root crowns and washed root systems", "No: ArUco or reference box", "Photos → 3D roots tab", "SOP-4"],
         ["X-ray CT / MRI", "Roots in soil, non-destructive", "Yes (voxel size)", "TIFF stack → Roots 3D tab", "SOP-4"],
+        ["iPhone + spike stand (no turntable)", "Quick root scans by one person, no rig to run", "LiDAR: yes, still check with ArUco; video: ArUco", "PLY export or video → Roots 3D tab", "SOP-6"],
         ["Motorised turntable + any camera", "Repeatable lab imaging of root crowns and potted plants", "No: ArUco on the platter", "Session folder → Tools import (Turntable rig)", "SOP-5"],
     ], [0.19, 0.22, 0.17, 0.32, 0.10]))
     s.append(Paragraph("Rules that apply to every device", H2))
@@ -428,6 +430,80 @@ def turntable():
     build("SOP-5_Turntable_rig.pdf", "turntable", s)
 
 
+def spike():
+    s = [banner("SOP-6  iPhone root scanning on a spike stand", "Fast 3D root scans by one person: the roots stay still and you walk around them", "SOP-6"),
+         Spacer(1, 6)]
+    s += figure("spike.jpg")
+    s.append(Paragraph(
+        "This is the quickest way to get 3D roots: no motor, no Raspberry Pi and no photo session. The washed root crown is pushed onto a "
+        "vertical spike, stem up, so the roots hang freely, and the operator walks around it with an iPhone. Allow about <b>2 minutes per plant</b> to capture, then "
+        "process in PhenoForge. Use it when time is short. Use the turntable (SOP-5) when you need the most detail and repeatability.", BODY))
+    s.append(Paragraph("1  Build the spike stand (once)", H2))
+    t = Table([[figure("spike_stand.png", width=W * 0.42)[0],
+                [Paragraph("<b>Parts</b>", BODY),
+                 Paragraph("• Heavy base: 400 × 400 mm plywood (18 mm) or a paving stone, painted <b>matte green</b>", BODY),
+                 Paragraph("• Printed <b>crown hub</b> and <b>stem cup</b> from the turntable print files (plate 1); the cup is an optional support collar", BODY),
+                 Paragraph("• M8 threaded rod 300 mm, with one end ground to a sharp point; 3 M8 nuts; 4 wood screws for the hub", BODY),
+                 Paragraph("• Green electrical tape for the rod (green parts are removed automatically)", BODY),
+                 Paragraph("• 4 ArUco markers, 50 mm (Tools &gt; Marker sheet), glued flat on rigid card", BODY),
+                 Spacer(1, 4),
+                 Paragraph("<b>Assemble</b>", BODY),
+                 Paragraph("Screw the hub to the centre of the base. Screw the blunt end of the rod into the hub and lock it with two nuts. "
+                           "Wrap the rod in green tape, leaving the top 3 cm of the point bare. For heavy crowns, thread the stem cup onto the rod "
+                           "just below the point (third nut) so the crown rests on it. Glue the 4 markers flat on the base, about 14 cm from the rod "
+                           "at 90° to each other. Measure one marker with a ruler and write the size on the base.", BODY)]]],
+              colWidths=[W * 0.45, W * 0.55])
+    t.setStyle(TableStyle([("VALIGN", (0, 0), (-1, -1), "TOP")]))
+    s.append(t)
+    s.append(Paragraph("2  Prepare the roots", H2))
+    s.append(steps([
+        ("Excavate and wash", "Dig out the root system, wash off all soil, and let it drip dry for 5–10 minutes. Wet, shiny roots reflect light and scan poorly."),
+        ("Cut the stem", "Leave a 5–10 cm stem stub. Weigh the roots now if you want root density (fresh weight)."),
+        ("Mount it on the spike", "Hold the crown stem up and push it straight down onto the point, through the centre of the crown base, until it "
+                                  "sits firmly (on the stem cup if you use it). The roots hang freely around the rod, and no root should touch the base."),
+        ("Fibrous roots (wheat)", "Push the spike into the crown at the base of the shoot, or clamp the shoot base in the stem cup's thumb screws, with "
+                                  "the roots hanging down. Spread them gently with a soft brush so they do not clump. For very fine roots, use the video route below."),
+    ]))
+    s.append(Paragraph("3  Scan with the iPhone", H2))
+    s.append(table(["", "Route A: LiDAR scan", "Route B: video (photogrammetry)"], [
+        ["Use for", "Thick roots: cassava storage roots, tubers, taproots", "Fine and fibrous roots (wheat) and anything thinner than ~3 mm"],
+        ["Phone", "iPhone 12 Pro or later Pro / Pro Max, or iPad Pro", "Any iPhone (or Android phone)"],
+        ["App", "Scaniverse, Polycam (LiDAR mode) or 3d Scanner App", "The camera app: 4K, 30 fps, HDR off"],
+        ["Live view", "Yes: you see the 3D model build while scanning", "No: the model is built on the PC"],
+        ["Scale", "Metric already, but check it with ArUco", "ArUco markers (required)"],
+        ["Time on the PC", "Seconds", "10–30 min (COLMAP)"],
+    ], [0.16, 0.42, 0.42]))
+    s.append(Spacer(1, 4))
+    s.append(steps([
+        ("Set up", "Plain backdrop behind the stand, two soft lights, and no fan or draught. Lock the phone's focus and exposure (tap and hold on the roots)."),
+        ("Circle 1: root level", "Hold the phone 30–50 cm from the roots at their height. Walk one slow full circle in about 40 s, keeping the roots in the centre of the screen."),
+        ("Circle 2: from above", "Raise the phone to about 45° above and walk a second circle. For long roots, add a third circle low down, looking up."),
+        ("Check", "LiDAR: look for grey holes in the live model and rescan rather than patch. Video: play it back and check that the roots are sharp, not blurred."),
+        ("Export and copy", "LiDAR: export <b>PLY</b> (points) or OBJ with colour. Video: copy the .mov or .mp4 file. Name it with the plant ID and date, "
+                            "e.g. <i>C07_2026-10-19.ply</i>, and copy it to the PC (AirDrop, USB or a cloud folder)."),
+    ]))
+    s.append(Paragraph("4  Measure in PhenoForge", H2))
+    s.append(steps([
+        ("Import", "<b>Tools &gt; Import from a capture device</b>. Choose <i>iPhone / iPad with LiDAR</i> for a PLY or OBJ, or "
+                   "<i>Android phone</i> and <b>File/video…</b> for a video. For a video, the sharpest ~120 frames are picked and reconstructed with COLMAP."),
+        ("Scale", "In the 3D analysis tab choose <b>ArUco markers</b> and type the measured marker size. For a LiDAR scan, click "
+                  "<b>Markers image</b> to check that each marker reads within ±2 % of its true size."),
+        ("Roots 3D", "Click <b>Use scan from 3D tab</b>. Set the stem direction to <b>+z</b> (stem up) and the stem length to remove (the stub, "
+                     "5–10 cm). Keep <i>Remove green background sheet</i> and <i>Remove background plane</i> ticked: they delete the green rod, "
+                     "base and markers. Choose <i>Root crown</i> for storage roots or <i>Fibrous root system</i> for wheat, then click <b>Measure roots</b>."),
+        ("Save", "<b>Save results</b> writes the trait table (CSV and JSON): crown volume, root number, length, diameter and angle per root, "
+                 "or total length, tips and depth for fibrous roots."),
+    ]))
+    s.append(Spacer(1, 4))
+    s.append(KeepTogether(box("Good to know", [
+        "Only the 3D model is live on the phone. The traits are calculated on the PC afterwards.",
+        "LiDAR thickens or misses roots thinner than about 3 mm. Use the video route for wheat roots.",
+        "If a thin vertical 'root' appears under the crown, the rod was not fully green: re-tape it, or paint the stem cup green too.",
+        "Validate first: measure 3–5 plants by hand (root length, diameter, fresh weight) and compare them in the <b>Validation</b> tab "
+        "before trusting the numbers for a whole experiment."], bg=AMBER)))
+    build("SOP-6_iPhone_roots_spike.pdf", "spike", s)
+
+
 if __name__ == "__main__":
     overview()
     iphone()
@@ -435,3 +511,4 @@ if __name__ == "__main__":
     dslr()
     roots()
     turntable()
+    spike()
