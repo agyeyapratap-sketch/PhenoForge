@@ -7,6 +7,18 @@ PhenoForge is an independent reimplementation of the kind of workflow offered by
 portable 3D phenotyping studios such as iPhonotype Studio. It contains none of their code,
 assets or branding. See [FEATURES.md](FEATURES.md) for what is covered and what is not yet.
 
+[![Latest release](https://img.shields.io/github/v/release/agyeyapratap-sketch/PhenoForge?label=download)](https://github.com/agyeyapratap-sketch/PhenoForge/releases/latest)
+
+## Download
+
+| What | Link |
+|---|---|
+| Windows app (unzip, run `PhenoForge.exe`) | [PhenoForge-windows-x64.zip](https://github.com/agyeyapratap-sketch/PhenoForge/releases/latest/download/PhenoForge-windows-x64.zip) |
+| Illustrated capture SOPs (iPhone, Android, DSLR, 3D roots, turntable) | [PhenoForge-SOPs.zip](https://github.com/agyeyapratap-sketch/PhenoForge/releases/latest/download/PhenoForge-SOPs.zip) |
+| Turntable print files (Bambu Studio 3MF, STL, OpenSCAD, Pi script) | [PhenoForge-turntable-print-files.zip](https://github.com/agyeyapratap-sketch/PhenoForge/releases/latest/download/PhenoForge-turntable-print-files.zip) |
+
+All versions are on the [Releases page](https://github.com/agyeyapratap-sketch/PhenoForge/releases).
+
 ## What it does
 
 - **Input from any capture device**
@@ -42,8 +54,8 @@ assets or branding. See [FEATURES.md](FEATURES.md) for what is covered and what 
 
 ## Install
 
-Windows: download `PhenoForge-windows-x64.zip` from a release (or build it, see
-[BUILD.md](BUILD.md)), unzip and run `PhenoForge.exe`. Nothing else is needed. COLMAP and
+Windows: download [PhenoForge-windows-x64.zip](https://github.com/agyeyapratap-sketch/PhenoForge/releases/latest/download/PhenoForge-windows-x64.zip)
+(or build it, see [BUILD.md](BUILD.md)), unzip and run `PhenoForge.exe`. Nothing else is needed. COLMAP and
 Ollama are optional extras.
 
 From source (Python 3.10–3.12):
