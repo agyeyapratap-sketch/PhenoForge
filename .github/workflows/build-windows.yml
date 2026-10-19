@@ -3,6 +3,13 @@ on:
   push:
     tags: ["v*"]
   workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "Publish a GitHub release with this tag (e.g. v0.1.0); leave empty to only build"
+        required: false
+        default: ""
+permissions:
+  contents: write
 jobs:
   build:
     runs-on: windows-latest
@@ -27,8 +34,23 @@ jobs:
         with:
           name: PhenoForge-windows-x64
           path: PhenoForge-windows-x64.zip
-      - name: Attach to release
-        if: startsWith(github.ref, 'refs/tags/')
+      - name: Zip SOPs and turntable print files
+        if: startsWith(github.ref, 'refs/tags/') || inputs.release_tag != ''
+        run: |
+          Compress-Archive -Path docs\sop\*.pdf -DestinationPath PhenoForge-SOPs.zip
+          Compress-Archive -Path hardware\turntable\bambu, hardware\turntable\stl, hardware\turntable\turntable.scad, hardware\turntable\README.md, hardware\turntable\pi -DestinationPath PhenoForge-turntable-print-files.zip
+      - name: Publish release
+        if: startsWith(github.ref, 'refs/tags/') || inputs.release_tag != ''
         uses: softprops/action-gh-release@v2
         with:
-          files: PhenoForge-windows-x64.zip
+          tag_name: ${{ inputs.release_tag || github.ref_name }}
+          target_commitish: ${{ github.sha }}
+          name: PhenoForge ${{ inputs.release_tag || github.ref_name }}
+          body: |
+            Open-source 3D plant phenotyping for Windows.
+            **Install:** download PhenoForge-windows-x64.zip, unzip, run PhenoForge.exe (no other install needed; COLMAP and Ollama are optional).
+            Also attached: the illustrated capture SOPs (PDF) and the motorised turntable print files (Bambu Studio 3MF for the X1 Carbon, STL, OpenSCAD, Pi script).
+          files: |
+            PhenoForge-windows-x64.zip
+            PhenoForge-SOPs.zip
+            PhenoForge-turntable-print-files.zip
