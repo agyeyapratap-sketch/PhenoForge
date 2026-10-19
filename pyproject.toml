@@ -1,0 +1,44 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "phenoforge"
+version = "0.1.0"
+description = "Open-source 3D plant phenotyping studio: scans, traits, roots, 2D images, colour, validation, 3D print export"
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.10,<3.14"
+dependencies = [
+  "numpy>=1.24",
+  "scipy>=1.10",
+  "open3d>=0.18",
+  "opencv-contrib-python>=4.8",
+  "scikit-image>=0.22",
+  "trimesh>=4.0",
+  "plyfile>=1.0",
+  "pillow>=10",
+  "matplotlib>=3.7",
+  "tifffile>=2023.1",
+  "PySide6>=6.6",
+  "pyqtgraph>=0.13.4",
+  "PyOpenGL>=3.1",
+]
+
+[project.optional-dependencies]
+usd = ["usd-core>=24.0"]
+las = ["laspy[lazrs]>=2.4"]
+raw = ["rawpy>=0.19"]
+dev = ["pytest>=7", "pyinstaller>=6.3"]
+
+[project.scripts]
+phenoforge = "phenoforge.cli:main"
+
+[project.gui-scripts]
+phenoforge-gui = "phenoforge.gui.app:run"
+
+[tool.setuptools.packages.find]
+include = ["phenoforge*"]
+
+[tool.setuptools.package-data]
+"phenoforge.gui" = ["icon.png"]
