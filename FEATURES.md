@@ -36,6 +36,7 @@ works but is narrower than the Studio feature. **Not yet** means it is missing.
 - Native Windows build and a command line for batch scripts and HPC.
 - Android and DSLR capture routes with SOPs, RAW development and blur and exposure checks.
 - Cassava-style 3D root crown traits, fibrous root skeletons and CT TIFF stacks.
+- An open-hardware motorised turntable (printable parts, Pi 5 control) with automatic static-background masks.
 - Synthetic scenes with known answers (Help > Demo) and an automated test suite.
 
 ## Wheat-specific gaps

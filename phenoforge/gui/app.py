@@ -1282,7 +1282,8 @@ class MainWindow(QtWidgets.QMainWindow):
         v = QtWidgets.QVBoxLayout(page)
         g = QtWidgets.QGroupBox("Import from a capture device (iPhone LiDAR, Android, DSLR)")
         f = QtWidgets.QFormLayout(g)
-        self.dev_kind = combo(["Auto-detect", "iPhone / iPad with LiDAR", "Android phone", "DSLR / mirrorless camera"])
+        self.dev_kind = combo(["Auto-detect", "iPhone / iPad with LiDAR", "Android phone", "DSLR / mirrorless camera",
+                                "Turntable rig (session folder)"])
         self.dev_kind.currentIndexChanged.connect(self._dev_tips)
         f.addRow("Device", self.dev_kind)
         self.dev_src = QtWidgets.QLineEdit()
@@ -1339,7 +1340,7 @@ class MainWindow(QtWidgets.QMainWindow):
         v.addStretch()
         self.tabs.addTab(page, "Tools")
 
-    _DEV_KEYS = [None, "iphone_lidar", "android", "dslr"]
+    _DEV_KEYS = [None, "iphone_lidar", "android", "dslr", "turntable"]
 
     def _dev_tips(self):
         from ..capture import PROFILES

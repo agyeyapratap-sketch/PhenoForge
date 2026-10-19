@@ -240,6 +240,9 @@ def cmd_capture(a):
         src = Path(a.inputs[0])
         if src.suffix.lower() in capture.VIDEO_EXT:
             rep = capture.video_to_frames(src, a.out, target_frames=a.frames)
+        elif a.device == "turntable" or capture.detect_device([src]) == "turntable":
+            rep, masks = capture.prepare_turntable(src, a.out)
+            print("masks:", masks)
         else:
             rep = capture.prepare_photos(src, a.out, None if a.device == "auto" else a.device)
         print(rep.summary())
@@ -358,9 +361,9 @@ def main(argv=None):
     p.add_argument("--quality", default="medium", choices=["low", "medium", "high", "extreme"])
     p.set_defaults(fn=cmd_reconstruct)
 
-    p = sub.add_parser("capture", help="import from iPhone LiDAR, Android or DSLR (photos, video, RAW, app exports)")
+    p = sub.add_parser("capture", help="import from iPhone LiDAR, Android, DSLR or the turntable rig (photos, video, RAW, app exports)")
     p.add_argument("inputs", nargs="+", help="scan file, video, photo folder or photo files")
-    p.add_argument("--device", default="auto", choices=["auto", "iphone_lidar", "android", "dslr"])
+    p.add_argument("--device", default="auto", choices=["auto", "iphone_lidar", "android", "dslr", "turntable"])
     p.add_argument("--out", default="phenoforge_capture")
     p.add_argument("--prepare-only", action="store_true", help="only make the clean photo/frame folder")
     p.add_argument("--frames", type=int, default=120, help="frames to keep from a video")

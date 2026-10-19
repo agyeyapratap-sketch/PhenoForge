@@ -9,6 +9,8 @@ android       Android phones. Most have no LiDAR, so either (a) a scanning app t
               photogrammetry or Gaussian splatting (Polycam, Scaniverse, KIRI Engine,
               RealityScan) exports OBJ / GLB / PLY / splat PLY, or (b) record a slow 4K video
               or take 60-120 photos and reconstruct here with COLMAP. Not metric: use ArUco.
+turntable     the PhenoForge motorised turntable (hardware/turntable): a fixed camera, the sample
+              rotates. Static-background masks are made for COLMAP so the room is ignored.
 dslr          DSLR / mirrorless on a tripod and turntable. RAW (CR2/CR3/NEF/ARW/DNG/RAF/ORF)
               or JPEG photos are developed, checked for blur and exposure, resized, and
               reconstructed with COLMAP. Not metric: use ArUco or a reference object.
@@ -58,11 +60,21 @@ PROFILES = {
         ["Tripod + turntable, 10 degree steps (36 shots per ring), three camera heights",
          "Manual exposure, f/8-f/11, ISO 100-400, fixed focus, no lens stabiliser on a tripod",
          "Diffuse light from two sides, plain non-green backdrop", "Shoot RAW + JPEG"]),
+    "turntable": DeviceProfile(
+        "turntable", "PhenoForge turntable rig", [".jpg", ".cr2", ".nef", ".arw", ".dng", "turntable.json"], False,
+        "Choose the session folder written by turntable_capture.py; masks hide the static room, then COLMAP and ArUco.",
+        ["36 stops per ring (10 degrees), 1.5 s settle, 2-3 camera heights",
+         "Camera fixed on a tripod; lock focus, exposure and white balance",
+         "ArUco markers on the platter so they turn with the sample",
+         "Plain backdrop, nothing else moving in view"]),
 }
 
 
 def detect_device(paths) -> str:
     """Guess the device type from files (extensions and EXIF make/model)."""
+    paths = list(paths)
+    if any(Path(p).name == "turntable.json" or (Path(p).is_dir() and (Path(p) / "turntable.json").exists()) for p in paths):
+        return "turntable"
     exts = {Path(p).suffix.lower() for p in paths}
     if exts & RAW_EXT:
         return "dslr"
@@ -214,6 +226,93 @@ def video_to_frames(video, out_dir, target_frames: int = 120, window: int = 5, m
     return rep
 
 
+def turntable_groups(folder, files) -> dict[str, list]:
+    """Group a turntable session's images by ring (camera position).
+
+    Uses ``turntable.json`` when present, otherwise the file-name prefix before the first
+    underscore (``low_000_000.0.jpg``); several cameras (``_cam2``) form separate groups.
+    """
+    import re
+
+    groups: dict[str, list] = {}
+    for f in files:
+        stem = Path(f).stem
+        ring = stem.split("_")[0] if "_" in stem else "ring1"
+        cam = re.search(r"_cam(\w+)$", stem)
+        groups.setdefault(ring + (f"_cam{cam.group(1)}" if cam else ""), []).append(f)
+    return groups
+
+
+def turntable_masks(images, mask_dir, threshold: float = 18.0, dilate_px: int = 15, min_fraction: float = 0.002,
+                    log=print) -> int:
+    """COLMAP masks for one fixed camera looking at a rotating sample.
+
+    The room is identical in every photo, so the per-pixel median of the series is the static
+    background, and pixels that differ from it in any photo lie in the space swept by the
+    turning sample (and the platter with its markers). That swept region, with holes filled
+    (parts that look the same from every side, such as a round pot or the stem on the axis),
+    is the mask for every photo of the series. Keep other moving things (people, leaves in a
+    fan draught) out of view, or they widen the mask. Masks are written as ``<image name>.png``
+    (white = use, black = ignore), the layout COLMAP expects for ``--mask_path``.
+    Returns the number of masks written.
+    """
+    import cv2
+    from scipy import ndimage as ndi
+
+    from .phenotype2d import read_image
+
+    images = [Path(p) for p in images]
+    if len(images) < 3:
+        return 0
+    mask_dir = Path(mask_dir)
+    mask_dir.mkdir(parents=True, exist_ok=True)
+    small = []
+    for p in images:
+        im = read_image(p)
+        h, w = im.shape[:2]
+        s = 800 / max(h, w)
+        small.append(cv2.resize(im, (int(w * s), int(h * s)), interpolation=cv2.INTER_AREA).astype(np.int16))
+    stack = np.stack(small)
+    med = np.median(stack, axis=0)
+    swept = np.zeros(stack.shape[1:3], bool)
+    open3 = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
+    for im in stack:
+        diff = np.abs(im - med).max(axis=2).astype(np.float32)
+        m = (cv2.GaussianBlur(diff, (5, 5), 0) > threshold).astype(np.uint8)
+        swept |= cv2.morphologyEx(m, cv2.MORPH_OPEN, open3).astype(bool)
+    k = max(3, int(dilate_px * 800 / max(h, w)) | 1)
+    kern = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (k, k))
+    m = cv2.morphologyEx(swept.astype(np.uint8), cv2.MORPH_CLOSE, kern)
+    # the sample turns about a vertical axis, so each image row of the swept space is one
+    # interval: fill between the outermost moving pixels (also fills the axis gap)
+    rows = np.flatnonzero(m.any(axis=1))
+    for r in rows:
+        c = np.flatnonzero(m[r])
+        m[r, c[0]:c[-1] + 1] = 1
+    m = ndi.binary_fill_holes(m).astype(np.uint8)
+    m = cv2.dilate(m, kern)
+    if m.mean() < min_fraction:  # nothing moved: keep the whole frame
+        m[:] = 1
+    full = cv2.resize(m * 255, (w, h), interpolation=cv2.INTER_NEAREST)
+    for p in images:
+        cv2.imwrite(str(mask_dir / f"{p.name}.png"), full)
+    log(f"turntable masks: {len(images)} written to {mask_dir} ({m.mean():.0%} of the frame kept)")
+    return len(images)
+
+
+def prepare_turntable(src, out_dir, log=print) -> tuple[PrepReport, Path]:
+    """Clean photo folder plus static-background masks for a turntable session."""
+    src, out = Path(src), Path(out_dir)
+    rep = prepare_photos(src, out / "images", device="turntable", log=log)
+    meta = src / "turntable.json"
+    if meta.exists():
+        (out / "images" / "turntable.json").write_text(meta.read_text())
+    masks = out / "masks"
+    for ring, files in turntable_groups(src, rep.kept).items():
+        turntable_masks(files, masks, log=log)
+    return rep, masks
+
+
 def import_capture(paths, work_dir, device: str | None = None, colmap: str | None = None, quality: str = "medium",
                    log=print):
     """One call from 'files off a device' to a loaded Scan.
@@ -233,8 +332,11 @@ def import_capture(paths, work_dir, device: str | None = None, colmap: str | Non
         scan = io.load(paths[0])
         dev = device or ("iphone_lidar" if scan.metric else "android")
         return scan, {"device": dev, "route": "direct", "metric": scan.metric}
+    masks = None
     if len(paths) == 1 and paths[0].suffix.lower() in VIDEO_EXT:
         rep = video_to_frames(paths[0], work / "frames", log=log)
+    elif len(paths) == 1 and paths[0].is_dir() and (device == "turntable" or detect_device(paths) == "turntable"):
+        rep, masks = prepare_turntable(paths[0], work, log=log)
     else:
         src = paths[0] if len(paths) == 1 and paths[0].is_dir() else None
         if src is None:
@@ -245,7 +347,8 @@ def import_capture(paths, work_dir, device: str | None = None, colmap: str | Non
         rep = prepare_photos(src, work / "images", device, log=log)
     if len(rep.kept) < 10:
         raise RuntimeError(f"Only {len(rep.kept)} usable images; photogrammetry needs 25 or more")
-    model = run_colmap(rep.out_dir, work / "colmap", colmap, quality, log=log)
+    model = run_colmap(rep.out_dir, work / "colmap", colmap, quality, log=log, mask_dir=masks,
+                       single_camera=rep.device in ("turntable", "dslr"))
     scan = io.load(model)
     scan.metric = False
     return scan, {"device": rep.device, "route": "photogrammetry", "images": len(rep.kept),

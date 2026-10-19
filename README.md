@@ -15,6 +15,9 @@ assets or branding. See [FEATURES.md](FEATURES.md) for what is covered and what 
   - Android phone video or photos, and DSLR or mirrorless photos (RAW or JPEG). These are
     reconstructed with COLMAP after blur and exposure checks.
   - LAS/LAZ and PCD files, and CT TIFF stacks for roots.
+  - The PhenoForge motorised turntable (`hardware/turntable`): 3D-printable parts, Bambu
+    Studio plates and a Raspberry Pi 5 stepper/camera script. On import, static-room masks
+    are made so COLMAP only reconstructs the turning sample.
 - **ArUco scaling**: markers are detected on a rendered top view and refined per marker.
   Scale error is under 0.1 % on synthetic data.
 - **Cleaning**: downsampling, outlier removal, cropping, ground-plane levelling and removal,
@@ -60,6 +63,7 @@ python -m phenoforge --help     # command line
    - `SOP-2_Android_phone.pdf`
    - `SOP-3_DSLR_mirrorless.pdf`
    - `SOP-4_3D_roots.pdf`
+   - `SOP-5_Turntable_rig.pdf` (build, print and run the turntable)
    - `SOP-0_Overview_capture_to_traits.pdf` for the whole flow.
 3. Import: Tools tab > Import from device, or `phenoforge capture <file|video|folder> --device auto`.
 4. Analyse: on the 3D analysis tab set the marker size and plant mode, then Run. Or from

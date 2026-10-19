@@ -98,3 +98,33 @@ def test_capture_prepare_and_video(tmp_path):
     rep = capture.video_to_frames(vid, tmp_path / "frames", target_frames=12, log=lambda *a: None)
     assert 10 <= len(rep.kept) <= 13
     assert capture.detect_device([tmp_path / "x.NEF"]) == "dslr"
+
+
+def test_turntable_masks_hide_static_room(tmp_path):
+    import cv2
+
+    from phenoforge import capture
+
+    rng = np.random.default_rng(1)
+    room = (rng.random((480, 640, 3)) * 255).astype(np.uint8)
+    room = cv2.GaussianBlur(room, (0, 0), 2)
+    src = tmp_path / "session"
+    src.mkdir()
+    for i in range(12):
+        img = room.copy()
+        a = np.radians(i * 30)
+        # the sample: a bar that turns with the table, plus a blob on the platter
+        p1 = (int(320 + 120 * np.cos(a)), int(240 + 40 * np.sin(a)))
+        p2 = (int(320 - 120 * np.cos(a)), int(240 - 40 * np.sin(a)))
+        cv2.line(img, p1, p2, (30, 160, 40), 18)
+        cv2.circle(img, (320, 240), 30, (40, 140, 60), -1)
+        cv2.imwrite(str(src / f"low_{i:03d}_{i * 30:05.1f}.jpg"), img)
+    (src / "turntable.json").write_text("{}")
+    assert capture.detect_device([src]) == "turntable"
+    rep, masks = capture.prepare_turntable(src, tmp_path / "out", log=lambda *a: None)
+    assert len(rep.kept) == 12
+    m = cv2.imread(str(masks / "low_000_000.0.jpg.png"), cv2.IMREAD_GRAYSCALE)
+    assert m.shape == (480, 640)
+    assert m[240, 320] == 255 and m[240, 420] == 255      # sample kept
+    assert m[40, 40] == 0 and m[440, 600] == 0            # room ignored
+    assert 0.05 < (m > 0).mean() < 0.5

@@ -24,7 +24,7 @@ def find_colmap(hint: str | None = None) -> str | None:
 
 
 def run_colmap(image_dir, work_dir, colmap: str | None = None, quality: str = "medium",
-               dense: bool = True, log=print) -> Path:
+               dense: bool = True, log=print, mask_dir=None, single_camera: bool = False) -> Path:
     exe = find_colmap(colmap)
     if exe is None:
         raise FileNotFoundError("COLMAP not found. Install it from https://colmap.github.io and set its path in Settings.")
@@ -32,6 +32,10 @@ def run_colmap(image_dir, work_dir, colmap: str | None = None, quality: str = "m
     work.mkdir(parents=True, exist_ok=True)
     cmd = [exe, "automatic_reconstructor", "--workspace_path", str(work), "--image_path", str(image_dir),
            "--quality", quality, "--dense", "1" if dense else "0"]
+    if mask_dir is not None and Path(mask_dir).is_dir():
+        cmd += ["--mask_path", str(mask_dir)]
+    if single_camera:
+        cmd += ["--single_camera", "1"]
     log(" ".join(cmd))
     proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
     for line in proc.stdout:

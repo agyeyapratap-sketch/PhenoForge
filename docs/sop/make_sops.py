@@ -32,6 +32,7 @@ FIGURE_CREDITS = {
     "dslr": "https://app.biorender.com/illustrations/dcb078d4934d95822056474a",
     "roots": "https://app.biorender.com/illustrations/53fe8fbd66876aab190cfa24",
     "workflow": "https://app.biorender.com/illustrations/a8401c1320ac7f644c979d35",
+    "turntable": "https://app.biorender.com/illustrations/a2975abb81ffae11939a0145",
 }
 
 ss = getSampleStyleSheet()
@@ -151,6 +152,7 @@ def overview():
         ["DSLR / mirrorless", "Highest detail, repeatable lab imaging, publications", "No: ArUco markers", "RAW or JPEG photos reconstructed in the app", "SOP-3"],
         ["Any camera, excavated roots", "Root crowns and washed root systems", "No: ArUco or reference box", "Photos → 3D roots tab", "SOP-4"],
         ["X-ray CT / MRI", "Roots in soil, non-destructive", "Yes (voxel size)", "TIFF stack → Roots 3D tab", "SOP-4"],
+        ["Motorised turntable + any camera", "Repeatable lab imaging of root crowns and potted plants", "No: ArUco on the platter", "Session folder → Tools import (Turntable rig)", "SOP-5"],
     ], [0.19, 0.22, 0.17, 0.32, 0.10]))
     s.append(Paragraph("Rules that apply to every device", H2))
     s.append(box("Do", ["Put the ArUco card flat beside every plant, in view from every side.",
@@ -340,9 +342,96 @@ def roots():
     build("SOP-4_3D_roots.pdf", "roots", s)
 
 
+def turntable():
+    s = [banner("SOP-5  Motorised turntable", "Build, print and run the PhenoForge turntable for root crowns and potted plants", "SOP-5"),
+         Spacer(1, 6)]
+    s += figure("turntable.jpg")
+    s.append(Paragraph(
+        "The camera stays still and the sample turns in fixed steps. A Raspberry Pi 5 moves the platter and takes a photo at every "
+        "stop, so every session is captured the same way. Design files are in <b>hardware/turntable</b>: the OpenSCAD source, STL files, "
+        "Bambu Studio plates for the X1 Carbon, and the Pi script.", BODY))
+    s.append(Paragraph("1  Print the parts", H2))
+    s += figure("tt_parts.png", width=W * 0.6,
+                caption="Printed parts: four risers, stem cup, hall-sensor post, pot ring, big pulley (120T), crown hub and motor cradle.")
+    s.append(table(["Plate (Bambu Studio file)", "Parts", "Settings (X1 Carbon, 0.4 mm)"], [
+        ["plate1_drive_parts.3mf", "big pulley, crown hub, motor cradle, stem cup, sensor post", "PETG, 0.20 mm, 4 walls, 35 % gyroid, no supports, ≈250 g"],
+        ["plate2_risers_pot_ring.3mf", "4 risers, pot ring (150 mm pot)", "same, ≈265 g"],
+    ], [0.3, 0.38, 0.32]))
+    s.append(Spacer(1, 3))
+    s.append(Paragraph("Open each 3MF in Bambu Studio, choose the <i>Bambu Lab X1 Carbon 0.4 nozzle</i> printer, PETG and the "
+                       "<i>0.20 mm Standard</i> process, set walls to 4 and infill to 35 % gyroid, then slice and print. To change a size "
+                       "(bearing, pot or stem diameter), edit the parameters at the top of <b>turntable.scad</b> and export again.", BODY))
+    s.append(Paragraph("2  Buy the other parts", H2))
+    s.append(box("Shopping list (about AUD 120–160)", [
+        "300 mm lazy-susan ball bearing, rated ≥ 100 kg, centre opening ≥ 120 mm",
+        "NEMA 17 stepper (40 mm body) and a TMC2209 driver",
+        "GT2 20T pulley (5 mm bore) and a GT2 closed belt, 300 mm, 6 mm wide",
+        "12 V 3 A power supply and a 100 µF capacitor",
+        "Plywood base 500 × 500 × 18 mm; 450 mm platter, painted matte grey",
+        "M8 threaded rod 250–300 mm, M4×40 bolts, M3×8 screws, M5 thumb screws",
+        "Optional: A3144 hall sensor and a 6 × 3 mm magnet for homing",
+        "Raspberry Pi 5 (your camera rig), DSLR on USB or the Arducam USB cameras"], cols=2))
+    s.append(Paragraph("3  Assemble", H2))
+    s += figure("tt_drive.png", width=W * 0.62, caption="Under the platter (platter and bearing hidden): the printed pulley hangs through the bearing "
+                                                         "opening, and the motor cradle slides outward to tension the belt.")
+    s.append(steps([
+        ("Base and bearing", "Screw the 4 risers to the base on a 270 mm circle. Screw the bearing's lower ring onto the risers."),
+        ("Platter and pulley", "Drill the platter centre: one 9 mm hole, and four 4.5 mm holes on a 94 mm circle. Bolt the crown hub on top and the "
+                               "big pulley underneath with 4 × M4×40, with the nuts in the pulley recesses. Screw the platter to the bearing's upper ring."),
+        ("Motor and belt", "Fix the motor under the cradle plate and fit the 20T pulley and belt. Place the cradle about 73 mm from the centre, slide "
+                           "it out until the belt deflects about 3 mm under a light press, then screw down the slotted feet. Slide the 20T pulley "
+                           "on its shaft until the belt runs level."),
+        ("Wire the Pi", "GPIO18 → STEP, GPIO23 → DIR, GPIO24 → EN, 3V3 and GND to the driver logic, 12 V to the driver motor supply (with the capacitor), "
+                        "and optionally the hall sensor to GPIO25. Set the driver current to about 70 % of the motor rating. Wiring details are in "
+                        "hardware/turntable/README.md."),
+        ("Mount the sample", "Root crown: screw the M8 rod into the hub and clamp the stem stub in the stem cup with the 3 thumb screws. "
+                             "Potted plant: remove the rod and screw the pot ring to the platter."),
+        ("Markers", "Print 4–8 ArUco markers (Tools &gt; Marker sheet, 40–50 mm) and glue them flat around the platter edge. They turn with the "
+                    "sample, which is what the reconstruction needs."),
+    ]))
+    s.append(Paragraph("4  Capture a session", H2))
+    s.append(table(["Setting", "Root crown", "Potted wheat"], [
+        ["Stops per ring", "36 (10°)", "36 (10°)"],
+        ["Rings (camera heights)", "3: below, level, 45° above", "3: pot height, 30°, 60° above"],
+        ["Settle time after each move", "1.5 s (heavy roots swing)", "2–3 s (leaves and heads sway)"],
+        ["Speed and acceleration", "15°/s, 15°/s²", "10°/s, 10°/s²"],
+        ["Camera", "DSLR f/8–f/11, ISO 100–400, manual focus and white balance", "same; or both Arducams for two heights at once"],
+    ], [0.3, 0.35, 0.35]))
+    s.append(Spacer(1, 4))
+    s.append(steps([
+        ("Test the drive", "<font face='Courier'>python3 pi/turntable_capture.py --jog 90</font>: the platter should turn a quarter turn smoothly. "
+                           "Use <i>--reverse</i> to change direction."),
+        ("Set up the camera", "Tripod 60–100 cm away, sample filling about 60 % of the frame, plain backdrop and two lights at 45°. "
+                              "Lock focus, exposure and white balance. Nothing else in view may move."),
+        ("Run", "<font face='Courier'>python3 pi/turntable_capture.py --out ~/scans/C07 --camera gphoto2 --shots 36 --rings low mid top "
+                "--settle 1.5 --speed 15 --accel 15</font>. After each ring the script asks you to move the camera to the next height."),
+        ("Phone or other cameras", "Use <i>--camera opencv --cam 0 2</i> for the two Arducam USB cameras. Use <i>--camera none --settle 3</i> with a phone "
+                                   "on an interval timer, then copy the photos into the session folder."),
+        ("Copy to the PC", "The session folder holds ring_index_angle.jpg photos and a turntable.json file. Copy the whole folder."),
+    ]))
+    s.append(Paragraph("5  Reconstruct and measure in PhenoForge", H2))
+    s.append(steps([
+        ("Import", "<b>Tools &gt; Import from a capture device</b>, device <i>Turntable rig (session folder)</i>, <b>Photo folder…</b>. "
+                   "Blurred photos are rejected. Masks are then made from the room, which is identical in every photo, so COLMAP only uses "
+                   "the turning sample and the platter."),
+        ("Scale", "In the 3D analysis tab choose <b>ArUco markers</b> and type the measured marker size."),
+        ("Measure", "Root crowns: <b>Roots 3D</b> tab (SOP-4), stem direction <i>+z</i> or <i>-z</i>. Potted plants: <b>3D analysis</b>, plant mode <i>single</i>."),
+    ]))
+    s.append(Spacer(1, 4))
+    s.append(KeepTogether(box("Troubleshooting", [
+        "Doubled leaves or roots: increase <i>--settle</i>, and lower <i>--speed</i> and <i>--accel</i>.",
+        "COLMAP reconstructs the room or the backdrop: something static was mistaken for the sample. Check that nothing else moved, that the "
+        "markers are on the platter (not the table), and that the backdrop is plain.",
+        "The platter stalls or skips: raise the driver current a little, check the belt tension, and centre heavy samples.",
+        "The motor hums but does not turn: the EN pin is not low or the coil pairs are swapped (swap A2 and B1).",
+        "Wrong angle per stop: <i>--microsteps</i> does not match the driver's MS pins."], bg=AMBER)))
+    build("SOP-5_Turntable_rig.pdf", "turntable", s)
+
+
 if __name__ == "__main__":
     overview()
     iphone()
     android()
     dslr()
     roots()
+    turntable()
