@@ -217,3 +217,93 @@ def make_fibrous_roots(seed=0, density=6.0e6):
             total += ll
     s = Scan(points=np.vstack(pts), name="synthetic_fibrous_roots", metric=True)
     return s, {"total_length": total, "n_tips": 4 + 16}
+
+
+def _spike(rng, base, axis, length, radius, density):
+    """Wheat head as a closed spindle (flat-sided, rounded ends) along ``axis`` from ``base``."""
+    u = np.asarray(axis, float) / np.linalg.norm(axis)
+    a = np.cross(u, [0, 0, 1.0]) if abs(u[2]) < 0.9 else np.cross(u, [1.0, 0, 0])
+    a /= np.linalg.norm(a)
+    b = np.cross(u, a)
+    n = max(200, int(2 * np.pi * radius * length * density))
+    t = rng.random(n)
+    th = rng.random(n) * 2 * np.pi
+    r = radius * np.sqrt(np.clip(1 - (2 * t - 1) ** 6, 0, 1))
+    # slightly flattened (two-rowed spikelet faces)
+    return (np.asarray(base, float) + np.outer(t * length, u) + (r * np.cos(th))[:, None] * a
+            + (0.8 * r * np.sin(th))[:, None] * b)
+
+
+def make_wheat(n_tillers=5, n_heads=4, metric=True, seed=0, density=1.0e6, head_density=2.5e6,
+               ground_density=2.5e5, noise=0.0003, yellow_leaf_tips=0.3):
+    """Pot-free wheat plant standing on the ground (+Z up, ground at z = 0).
+
+    Tillers are thin, slightly leaning tubes (diameter 3-4 mm, 40-70 cm tall) on a small
+    crown; strap leaves are curved ribbons attached along the tillers (some droop down
+    through the lower stem zone, some have senesced yellow tips as a colour confounder);
+    ``n_heads`` of the tillers carry a dense straw-coloured spike (~8 x 1.2 cm). Brown ground
+    points cover z = 0. With ``metric=False`` the cloud is divided by an unknown scale.
+    Returns (scan, truth) with truth lengths in metres.
+    """
+    rng = np.random.default_rng(seed)
+    n_heads = min(n_heads, n_tillers)
+    # tiller bases on a crown, at least 9 mm apart
+    bases = []
+    while len(bases) < n_tillers:
+        rr = 0.008 + 0.022 * np.sqrt(rng.random())
+        az = rng.random() * 2 * np.pi
+        p = np.array([rr * np.cos(az), rr * np.sin(az)])
+        if all(np.linalg.norm(p - q) >= 0.009 for q in bases):
+            bases.append(p)
+    headed = set(rng.choice(n_tillers, n_heads, replace=False).tolist())
+    P, C = [], []
+    truth = {"n_tillers": int(n_tillers), "n_heads": int(n_heads), "head_lengths": [], "head_tops": [],
+             "tiller_bases": [b.tolist() for b in bases]}
+    for k, b in enumerate(bases):
+        out_az = np.arctan2(b[1], b[0]) + rng.normal(0, 0.4)
+        lean = np.radians(3 + 9 * rng.random())
+        d = np.array([np.sin(lean) * np.cos(out_az), np.sin(lean) * np.sin(out_az), np.cos(lean)])
+        h = (0.45 + 0.20 * rng.random()) if k in headed else (0.30 + 0.15 * rng.random())
+        L = h / d[2]
+        p0 = np.array([b[0], b[1], 0.0])
+        r = 0.0015 + 0.0005 * rng.random()
+        st, _, _ = _tapered_tube(p0, p0 + L * d, r, 0.85 * r, density, rng)
+        P.append(st)
+        C.append(np.tile([0.36, 0.56, 0.24], (len(st), 1)) + rng.normal(0, 0.03, (len(st), 3)))
+        for j in range(3):
+            f = 0.30 + 0.17 * j + 0.05 * rng.random()
+            lb = p0 + f * L * d
+            leaf_len = 0.16 + 0.10 * rng.random()
+            droop = 0.9 + 0.6 * rng.random() if j == 0 else 0.7 + 0.4 * rng.random()
+            lp, _ = _leaf(rng, lb, rng.random() * 2 * np.pi, leaf_len, 0.010 + 0.004 * rng.random(),
+                          0.7, droop, np.sqrt(density))
+            lp = lp[lp[:, 2] > 0.002]
+            lc = np.tile([0.20, 0.58, 0.16], (len(lp), 1)) + rng.normal(0, 0.03, (len(lp), 3))
+            if rng.random() < yellow_leaf_tips:  # senesced tip: same hue as the heads
+                tip = np.linalg.norm(lp[:, :2] - lb[:2], axis=1) > 0.75 * 0.9 * leaf_len
+                lc[tip] = np.array([0.76, 0.69, 0.38]) + rng.normal(0, 0.03, (tip.sum(), 3))
+            P.append(lp)
+            C.append(lc)
+        if k in headed:
+            hl = 0.07 + 0.02 * rng.random()
+            hr = 0.0055 + 0.001 * rng.random()
+            sp = _spike(rng, p0 + L * d - 0.005 * d, d, hl, hr, head_density)
+            P.append(sp)
+            C.append(np.tile([0.80, 0.72, 0.40], (len(sp), 1)) + rng.normal(0, 0.035, (len(sp), 3)))
+            truth["head_lengths"].append(float(hl))
+            truth["head_tops"].append(float(sp[:, 2].max()))
+    P = np.vstack(P)
+    P += rng.normal(0, noise, P.shape)
+    # ground around the plant
+    ext = max(0.15, np.abs(P[:, :2]).max() + 0.05)
+    ng = int((2 * ext) ** 2 * ground_density)
+    g = np.column_stack([(rng.random(ng) - 0.5) * 2 * ext, (rng.random(ng) - 0.5) * 2 * ext, rng.normal(0, noise, ng)])
+    gc = np.tile([0.36, 0.27, 0.20], (ng, 1)) + rng.normal(0, 0.03, (ng, 3))
+    P = np.vstack([g, P])
+    C = np.clip(np.vstack([gc] + C), 0, 1)
+    truth["plant_height"] = float(P[:, 2].max())
+    scale = 1.0 if metric else 2.7
+    truth["unknown_scale"] = scale
+    s = Scan(points=P / scale, colors=C, name="synthetic_wheat", metric=bool(metric), ground_z=0.0)
+    s.history.append(f"synthetic wheat ({n_tillers} tillers, {n_heads} heads)")
+    return s, truth

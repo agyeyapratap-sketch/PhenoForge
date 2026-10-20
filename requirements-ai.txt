@@ -1,0 +1,5 @@
+# Optional add-ons. Install after requirements.txt:  pip install -r requirements-ai.txt
+# ultralytics brings PyTorch (about 2-3 GB). An NVIDIA GPU makes detector training much faster.
+ultralytics>=8.3        # SAM 2.1 leaf instances (downloads sam2.1_b.pt once) and the wheat-head detector
+pyttsx3>=2.90           # spoken narration for root videos (uses the Windows voices, offline)
+imageio-ffmpeg>=0.5     # ffmpeg to add the narration to the video

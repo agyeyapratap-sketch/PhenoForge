@@ -346,7 +346,7 @@ def import_capture(paths, work_dir, device: str | None = None, colmap: str | Non
                 shutil.copy2(p, src / p.name)
         rep = prepare_photos(src, work / "images", device, log=log)
     if len(rep.kept) < 10:
-        raise RuntimeError(f"Only {len(rep.kept)} usable images; photogrammetry needs 25 or more")
+        raise RuntimeError(f"Only {len(rep.kept)} usable images; at least 10 are needed and 60-120 give good models")
     model = run_colmap(rep.out_dir, work / "colmap", colmap, quality, log=log, mask_dir=masks,
                        single_camera=rep.device in ("turntable", "dslr"))
     scan = io.load(model)

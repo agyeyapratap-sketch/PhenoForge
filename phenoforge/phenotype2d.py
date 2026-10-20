@@ -16,7 +16,7 @@ import numpy as np
 from .clean import otsu_threshold
 from .scale import image_mm_per_px
 
-IMG_EXT = {".jpg", ".jpeg", ".png", ".tif", ".tiff", ".bmp"}
+IMG_EXT = {".jpg", ".jpeg", ".png", ".tif", ".tiff", ".bmp", ".heic", ".heif"}
 
 
 def read_image(path) -> np.ndarray:
@@ -25,11 +25,17 @@ def read_image(path) -> np.ndarray:
 
     data = np.fromfile(str(path), dtype=np.uint8)
     img = cv2.imdecode(data, cv2.IMREAD_COLOR)
-    if img is None:
+    if img is None:  # e.g. iPhone HEIC photos, which OpenCV cannot decode
         try:
-            from PIL import Image
+            from PIL import Image, ImageOps
 
-            return np.asarray(Image.open(path).convert("RGB"))
+            try:
+                import pillow_heif
+
+                pillow_heif.register_heif_opener()
+            except ImportError:
+                pass
+            return np.asarray(ImageOps.exif_transpose(Image.open(path)).convert("RGB"))
         except Exception as e:
             raise ValueError(f"Cannot read image {path}") from e
     return cv2.cvtColor(img, cv2.COLOR_BGR2RGB)

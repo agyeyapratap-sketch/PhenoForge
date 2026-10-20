@@ -529,19 +529,28 @@ def iphonotype():
                   "card in the frame. Aim for about 140 photos; 90 is the app's minimum."),
         ("Let it process", "Wait until the mesh and the splat are finished on the phone before you export. Keep the phone plugged in and out of the sun "
                            "so it does not slow down from heat."),
-        ("Export", "Export the <b>.ftscan</b> package and copy it to the PC. Rename it with the plant ID and date, e.g. "
-                   "<i>W123_2026-10-19.ftscan.zip</i>. You do not need to unzip it."),
+        ("Export", "Export the <b>.ftscan</b> package. Either copy it to the PC (AirDrop, OneDrive or USB), or send it over Wi-Fi: "
+                   "in PhenoForge choose <b>File &gt; Receive from phone (Wi-Fi)</b>, press <b>Start</b>, scan the QR code with the "
+                   "iPhone camera and pick the package on the web page that opens. You do not need to unzip it."),
     ]))
     s.append(Spacer(1, 4))
     s.append(Paragraph("In PhenoForge", H2))
     s.append(steps([
-        ("Open the package", "<b>3D analysis</b> tab &gt; <b>Open scan…</b> and choose the .ftscan.zip (or the unzipped .ftscan folder). "
-                             "PhenoForge loads the splat cloud and drops faint splats (opacity below 0.3)."),
-        ("Clean and frame", "Leave <i>Input is Y-up</i> <b>unticked</b>: ticking it lays iPhonotype scans on their side. Keep <i>Remove outliers</i>, "
+        ("Open the package", "On the <b>Start</b> tab click <b>Analyse an iPhonotype scan</b> and choose the .ftscan.zip (or drop it on "
+                             "the window). PhenoForge stands the splat cloud upright, takes the metric scale, plant ID, genotype, treatment "
+                             "and light readings from the package, and runs the analysis straight away. The <b>vs iPhonotype</b> tab "
+                             "compares its traits with the app's; the <b>Package</b> tab lists what the app recorded."),
+        ("Clean and frame", "Leave <i>Input is Y-up</i> <b>unticked</b>: the package is already turned upright on loading, and ticking it lays the "
+                            "plant on its side. If you open the USDZ mesh on its own, also leave it unticked. Keep <i>Remove outliers</i>, "
                             "<i>Fit ground plane</i> and <i>Remove ground points</i> ticked, and use vegetation index <i>exg</i> to remove the pot and soil."),
-        ("Set the scale", "With a card: <b>ArUco markers</b> and the measured marker size, then check <b>Markers image</b>. Without a card: "
-                          "<i>Already metric</i> uses the app's camera-based scale, or <i>Two picked points</i> across a known distance such as the pot rim."),
-    ] + ANALYSE_STEPS[3:]))
+        ("Check the scale", "The package scale is used automatically (<i>Already metric</i>). With a card in view, switch to "
+                            "<b>ArUco markers</b>, type the measured marker size and press <b>Run analysis</b> again; <b>Markers image</b> "
+                            "shows each marker's size. Without a card, <i>Two picked points</i> across a known distance such as the pot rim also works."),
+        ("Check the model", "<b>Check vs photos</b> draws the 3D scan over each of the app's photos and reports the overlap (IoU). "
+                            "Most frames above about 0.6 means the model matches what the camera saw."),
+        ("Save", "<b>Save results</b> writes JSON and CSV files, including the comparison with the app and the package details. "
+                 "For many scans use <b>File &gt; Analyse a whole folder</b>: one row per scan in all_scans.csv."),
+    ]))
     s.append(Paragraph("What is in the package", H2))
     s.append(table(["File", "What it is", "Use in PhenoForge"], [
         ["splats/iphone_splat_reconstruction.ply", "Gaussian-splat cloud in metres, scaled from the camera path (confidence in 3dgs/workflow.json)",
@@ -554,7 +563,8 @@ def iphonotype():
     s.append(table(["Check", "Pass", "If it fails"], [
         ["Photos in the package (logs/native_object_capture.json, image_count)", "≥ 90, ideally 140", "Rescan with a slower orbit"],
         ["Coverage (manifest.json, quality.coverage_estimate)", "≥ 0.8 (suggested)", "Add the higher and lower passes; avoid gaps behind leaves"],
-        ["Plant stands upright after the ground fit", "upright", "Untick Y-up; crop away a tilted table or the background"],
+        ["Plant stands upright after the ground fit", "upright", "Untick Y-up. If the splat .ply was opened on its own (not the package), "
+                                                                  "tick Y-up. Crop away a tilted table or the background"],
         ["Marker size after scaling", "within ±2 %", "Use ArUco scaling; check that the card is flat"],
         ["Plant height vs ruler", "within 1 cm", "Check the scale; fit the ground plane on soil, not on leaves"],
     ], [0.42, 0.2, 0.38]))

@@ -13,12 +13,14 @@ from PySide6 import QtCore, QtGui, QtWidgets
 
 from .. import __version__
 from ..scan import Scan
+from . import dialogs
+from .home import HomePage
 from .viewer import CloudViewer
 
 APP = "PhenoForge"
 SCAN_FILTER = ("Scans (*.ply *.pcd *.xyz *.xyzrgb *.pts *.txt *.csv *.las *.laz *.obj *.glb *.gltf *.stl *.off "
                "*.usdz *.usd *.usdc *.usda *.zip *.ftscan);;All files (*)")
-IMG_FILTER = "Images (*.jpg *.jpeg *.png *.tif *.tiff *.bmp);;All files (*)"
+IMG_FILTER = "Images (*.jpg *.jpeg *.png *.tif *.tiff *.bmp *.heic *.heif);;All files (*)"
 
 
 # --------------------------------------------------------------------------- workers
@@ -135,11 +137,18 @@ class MainWindow(QtWidgets.QMainWindow):
         self.picks: list[np.ndarray] = []
         self.threads: list[QtCore.QThread] = []
         self.workspace = None
+        self._auto_run = False
+        self.help_win = None
 
         self.tabs = QtWidgets.QTabWidget()
         self.setCentralWidget(self.tabs)
+        self.setAcceptDrops(True)
         self._build_log()
         self._build_library()
+        self.home = HomePage()
+        self.home.task.connect(self.start_task)
+        self.home.openRecent.connect(self.open_path)
+        self.tabs.addTab(self.home, "Start")
         self._build_3d_tab()
         self._build_compare_tab()
         self._build_images_tab()
@@ -151,9 +160,128 @@ class MainWindow(QtWidgets.QMainWindow):
         self._build_assistant_tab()
         self._build_tools_tab()
         self._build_menu()
+        self._add_tooltips()
         ws = self.settings.value("workspace", str(Path.home() / "PhenoForge"))
         self.open_workspace(ws)
-        self.statusBar().showMessage("Open a scan (File > Open) or try Help > Load demo scan")
+        self.home.set_recent(self._recent())
+        self.statusBar().showMessage("Pick a job on the Start tab, drop a scan on the window, or press F1 for help")
+
+    # ----------------------------------------------------------------- ease of use
+    def show_tab(self, title: str):
+        for i in range(self.tabs.count()):
+            if self.tabs.tabText(i) == title:
+                self.tabs.setCurrentIndex(i)
+                return
+
+    def start_task(self, key: str):
+        """Start-page buttons: choose settings, then open the right tab or dialog."""
+        preset = {"ftscan": "iPhonotype app (.ftscan)", "lidar": "iPhone LiDAR app (PLY / OBJ / USDZ)",
+                  "tray": "Tray of touching plants", "wheat": "Wheat: heads and tillers",
+                  "objects": "Fruit / objects on a bench"}.get(key)
+        if preset:
+            self.preset_box.setCurrentText(preset)
+            self.show_tab("3D analysis")
+            filt = "iPhonotype packages (*.ftscan *.zip);;All files (*)" if key == "ftscan" else SCAN_FILTER
+            p, _ = QtWidgets.QFileDialog.getOpenFileName(self, "Open scan", self.settings.value("last_dir", ""), filt)
+            if p:
+                self._auto_run = key == "ftscan"  # metric already: go straight to results
+                self.open_path(p)
+            if key == "wheat":
+                self.log("Tip: to count heads in photos instead, use Tools > Wheat-head detector.")
+        elif key == "receive":
+            dialogs.ReceiveDialog(self).show()
+        elif key == "batch":
+            dialogs.BatchDialog(self).exec()
+        elif key == "photos":
+            self.show_tab("Tools")
+        elif key == "framecheck":
+            self.check_vs_photos()
+        elif key == "demo":
+            self.show_tab("3D analysis")
+            self.load_demo()
+        elif key == "guide":
+            self.show_help("index.md")
+        else:
+            self.show_tab({"roots3d": "Roots 3D", "images": "Images (2D)", "roots2d": "Roots", "compare": "Compare",
+                           "validate": "Validation"}[key])
+
+    def open_path(self, path: str, rec=None):
+        """Open any scan file or package from anywhere (Start page, drop, Wi-Fi, recent list).
+
+        ``rec`` is the library key ("scan", project, session, id) when the scan is in the library,
+        so results are saved there too."""
+        self.settings.setValue("last_dir", str(Path(path).parent))
+        self.current_rec = rec
+        for w in self.meta_fields.values():  # never carry the previous scan's IDs over
+            w.clear()
+        self.show_tab("3D analysis")
+        self.load_scan(path)
+
+    def _recent(self) -> list[str]:
+        r = self.settings.value("recent", []) or []
+        return [p for p in ([r] if isinstance(r, str) else r) if Path(p).exists()]
+
+    def _remember(self, path: str):
+        r = [str(path)] + [p for p in self._recent() if p != str(path)]
+        self.settings.setValue("recent", r[:10])
+        self.home.set_recent(r[:10])
+
+    def dragEnterEvent(self, e):
+        if e.mimeData().hasUrls():
+            e.acceptProposedAction()
+
+    def dropEvent(self, e):
+        paths = [u.toLocalFile() for u in e.mimeData().urls() if u.isLocalFile()]
+        if len(paths) == 1:
+            self.open_path(paths[0])
+        elif paths and self._selected("session"):
+            s = self._selected("session")
+            for p in paths:
+                self.workspace.import_scan(s[1], s[2], p)
+            self.refresh_tree()
+            self.log(f"added {len(paths)} scans to the library session")
+        elif paths:
+            self._error("Drop one scan to open it, or select a library session first to add several.")
+
+    def show_help(self, page: str = "index.md"):
+        from .helpview import HelpWindow
+
+        if self.help_win is None:
+            self.help_win = HelpWindow(self)
+        self.help_win.show_page(page)
+        self.help_win.show()
+        self.help_win.raise_()
+
+    def help_for_tab(self):
+        from .helpview import TAB_TOPICS
+
+        self.show_help(TAB_TOPICS.get(self.tabs.tabText(self.tabs.currentIndex()), "index.md"))
+
+    def _add_tooltips(self):
+        tips = {
+            self.preset_box: "Ready-made settings for common jobs. Pick one, then adjust anything below.",
+            self.o_yup: "Tick only if the plant lies on its side after loading. iPhonotype packages and USDZ files are "
+                        "turned upright automatically.",
+            self.o_voxel: "Thin out very dense scans to speed things up (scan units). 0 keeps every point.",
+            self.o_outliers: "Removes isolated stray points (flying pixels, dust).",
+            self.o_ground: "Finds the table or soil plane and makes it z = 0, so height is measured from it.",
+            self.o_remove_ground: "Deletes the ground points after levelling so they do not count as plant.",
+            self.o_veg: "Keeps plant-coloured points. exg: green plants. hue: also straw/yellow heads. none: keep all colours.",
+            self.o_vegthr: "Leave empty to choose the threshold automatically (Otsu).",
+            self.o_largest: "Keeps only the biggest connected part(s), e.g. to drop a neighbouring plant.",
+            self.o_scale_mode: "How real-world size is set. Already metric: LiDAR or iPhonotype. ArUco: printed markers. "
+                               "Two picked points: Ctrl+click two points of known distance.",
+            self.o_aruco_mm: "Side length of one printed marker, measured with a ruler.",
+            self.o_plants: "single: one plant. watershed: touching plants in a tray. grid: pots in rows and columns. "
+                           "dbscan: separate clumps.",
+            self.o_expected: "How many plants you expect (helps watershed). 0 = automatic.",
+            self.o_leaves: "components / region: geometric leaf candidates. sam: AI leaf separation (optional add-on).",
+            self.o_heads: "Count wheat heads (spikes) in the scan. A heuristic: check against hand counts.",
+            self.o_tillers: "Count tillers from stem cross-sections just above the ground.",
+            self.o_objects: "Length, width, thickness, volume and colour of each separate object.",
+        }
+        for w, t in tips.items():
+            w.setToolTip(t)
 
     # ----------------------------------------------------------------- infrastructure
     def _build_log(self):
@@ -193,6 +321,8 @@ class MainWindow(QtWidgets.QMainWindow):
     def _build_menu(self):
         m = self.menuBar().addMenu("&File")
         m.addAction("&Open scan...", self.open_scan_dialog, QtGui.QKeySequence.Open)
+        m.addAction("&Receive from phone (Wi-Fi)...", lambda: dialogs.ReceiveDialog(self).show())
+        m.addAction("Analyse a whole &folder...", lambda: dialogs.BatchDialog(self).exec())
         m.addAction("Open &workspace folder...", self.choose_workspace)
         m.addAction("&Import scan into library...", self.import_into_library)
         m.addSeparator()
@@ -202,7 +332,17 @@ class MainWindow(QtWidgets.QMainWindow):
         m.addAction("Save view snapshot...", self.snapshot)
         m.addSeparator()
         m.addAction("&Quit", self.close, QtGui.QKeySequence.Quit)
+        t = self.menuBar().addMenu("&Tools")
+        t.addAction("Check scan against its photos (iPhonotype)...", self.check_vs_photos)
+        t.addAction("Wheat-head detector (photos)...", lambda: dialogs.HeadDetectorDialog(self).exec())
+        t.addAction("Narrated root video...", lambda: dialogs.RootVideoDialog(self).exec())
+        t.addAction("Scale evidence from a capture video...", lambda: dialogs.ScaleEvidenceDialog(self).exec())
+        t.addAction("Package information...", self.show_package_info)
         h = self.menuBar().addMenu("&Help")
+        h.addAction("Help for this screen", self.help_for_tab, QtGui.QKeySequence.HelpContents)
+        h.addAction("User guide", lambda: self.show_help("index.md"))
+        h.addAction("Getting started", lambda: self.show_help("getting-started.md"))
+        h.addSeparator()
         h.addAction("Load demo scan", self.load_demo)
         h.addAction("Load demo root crown", self.load_demo_crown)
         h.addAction("About", lambda: QtWidgets.QMessageBox.about(
@@ -347,7 +487,8 @@ class MainWindow(QtWidgets.QMainWindow):
         lv = QtWidgets.QVBoxLayout(left)
         lv.setContentsMargins(0, 0, 0, 0)
         bar = QtWidgets.QHBoxLayout()
-        self.mode_box = combo(["RGB", "Height", "Greenness (ExG)", "Plants", "Leaves"])
+        self.mode_box = combo(["RGB", "Splat", "Height", "Greenness (ExG)", "Plants", "Leaves"])
+        self.mode_box.setToolTip("Splat draws each point as a soft disc sized like the original Gaussian splat (photo-like).")
         self.mode_box.currentTextChanged.connect(self.viewer.set_mode)
         bar.addWidget(QtWidgets.QLabel("Colour"))
         bar.addWidget(self.mode_box)
@@ -361,6 +502,11 @@ class MainWindow(QtWidgets.QMainWindow):
         self.raw_cb = QtWidgets.QCheckBox("Show original")
         self.raw_cb.toggled.connect(self._toggle_raw)
         bar.addWidget(self.raw_cb)
+        self.orbit_cb = QtWidgets.QCheckBox("Auto orbit")
+        self.orbit_cb.setToolTip("Turn the view slowly around the plant; click in the view to stop.")
+        self.orbit_cb.toggled.connect(self.viewer.set_auto_orbit)
+        self.viewer.autoOrbitChanged.connect(self.orbit_cb.setChecked)  # a click in the view stops the orbit
+        bar.addWidget(self.orbit_cb)
         bar.addStretch()
         bar.addWidget(QtWidgets.QLabel("<small>Drag: orbit · wheel: zoom · Ctrl+click: pick point</small>"))
         lv.addLayout(bar)
@@ -372,6 +518,16 @@ class MainWindow(QtWidgets.QMainWindow):
         b = QtWidgets.QPushButton("Open scan...")
         b.clicked.connect(self.open_scan_dialog)
         rv.addWidget(b)
+        from ..pipeline import PRESETS
+
+        row = QtWidgets.QHBoxLayout()
+        row.addWidget(QtWidgets.QLabel("Settings for"))
+        self.preset_box = combo(list(PRESETS))
+        row.addWidget(self.preset_box, 1)
+        rv.addLayout(row)
+        self.preset_desc = QtWidgets.QLabel()
+        self.preset_desc.setWordWrap(True)
+        rv.addWidget(self.preset_desc)
         tb = QtWidgets.QToolBox()
         # cleaning
         g = QtWidgets.QWidget()
@@ -419,13 +575,18 @@ class MainWindow(QtWidgets.QMainWindow):
         self.o_rows = ispin(0, 0, 500)
         self.o_cols = ispin(0, 0, 500)
         self.o_pitch = dspin(0.0, 0, 5000, 1, 1, " mm")
-        self.o_leaves = combo(["components", "region", "none"])
+        self.o_leaves = combo(["components", "region", "sam", "none"])
+        self.o_heads = QtWidgets.QCheckBox("Count wheat heads (spikes)")
+        self.o_tillers = QtWidgets.QCheckBox("Count tillers")
+        self.o_objects = QtWidgets.QCheckBox("Measure each object (fruit, tubers, seeds)")
         for lbl, w in (("Plants", self.o_plants), ("Expected plants (0 = auto)", self.o_expected),
                        ("Pot grid rows", self.o_rows), ("Pot grid columns", self.o_cols), ("Pot pitch", self.o_pitch),
-                       ("Leaf candidates", self.o_leaves)):
+                       ("Leaf candidates", self.o_leaves), ("", self.o_heads), ("", self.o_tillers), ("", self.o_objects)):
             f.addRow(lbl, w)
-        tb.addItem(g, "3  Plants and leaves")
+        tb.addItem(g, "3  Plants, leaves, heads and objects")
         rv.addWidget(tb)
+        self.preset_box.currentTextChanged.connect(self.apply_preset)
+        self.apply_preset(self.preset_box.currentText())
         run = QtWidgets.QPushButton("Run analysis")
         run.setStyleSheet("font-weight: bold; padding: 6px")
         run.clicked.connect(self.run_analysis)
@@ -434,12 +595,21 @@ class MainWindow(QtWidgets.QMainWindow):
         self.t_plant = QtWidgets.QTableWidget()
         self.t_plants = QtWidgets.QTableWidget()
         self.t_leaves = QtWidgets.QTableWidget()
+        self.t_heads = QtWidgets.QTableWidget()
+        self.t_objects = QtWidgets.QTableWidget()
+        self.t_app = QtWidgets.QTableWidget()
+        self.t_package = QtWidgets.QTableWidget()
         self.res_tabs.addTab(self.t_plant, "Scan")
         self.res_tabs.addTab(self.t_plants, "Per plant")
         self.res_tabs.addTab(self.t_leaves, "Leaves")
+        self.res_tabs.addTab(self.t_heads, "Heads")
+        self.res_tabs.addTab(self.t_objects, "Objects")
+        self.res_tabs.addTab(self.t_app, "vs iPhonotype")
+        self.res_tabs.addTab(self.t_package, "Package")
         rv.addWidget(self.res_tabs, 1)
         row = QtWidgets.QHBoxLayout()
-        for txt, fn in (("Save results", self.save_results), ("Export cloud", self.export_cloud), ("Markers image", self.show_marker_image)):
+        for txt, fn in (("Save results", self.save_results), ("Export cloud", self.export_cloud),
+                        ("Markers image", self.show_marker_image), ("Check vs photos", self.check_vs_photos)):
             b = QtWidgets.QPushButton(txt)
             b.clicked.connect(fn)
             row.addWidget(b)
@@ -448,6 +618,27 @@ class MainWindow(QtWidgets.QMainWindow):
         page.addWidget(right)
         page.setStretchFactor(0, 3)
         self.tabs.addTab(page, "3D analysis")
+
+    def apply_preset(self, name: str):
+        """Set the 3D-tab controls from a preset (defaults for everything the preset does not name)."""
+        from ..pipeline import PRESETS, preset_options
+
+        if name not in PRESETS:
+            return
+        o = preset_options(name)
+        self.preset_desc.setText(f"<small style='color:#5b6670'>{PRESETS[name][0]}</small>")
+        self.o_yup.setChecked(o.y_up)
+        self.o_veg.setCurrentText(o.vegetation)
+        self.o_plants.setCurrentText(o.plants)
+        self.o_leaves.setCurrentText(o.leaves)
+        self.o_heads.setChecked(o.heads)
+        self.o_tillers.setChecked(o.tillers)
+        self.o_objects.setChecked(o.objects)
+        if o.aruco_size_m:
+            self.o_scale_mode.setCurrentText("ArUco markers")
+            self.o_aruco_mm.setValue(o.aruco_size_m * 1000)
+        elif self.raw_scan is None or self.raw_scan.metric or o.assume_metric:
+            self.o_scale_mode.setCurrentIndex(0)
 
     def open_scan_dialog(self):
         p, _ = QtWidgets.QFileDialog.getOpenFileName(self, "Open scan", self.settings.value("last_dir", ""), SCAN_FILTER)
@@ -462,18 +653,66 @@ class MainWindow(QtWidgets.QMainWindow):
         self.log(f"loading {path}")
 
         def done(scan):
+            from .. import ftscan
+
             self.raw_scan = scan
             self.scan = scan
             self.results = None
             self.picks = []
             if scan.metric:
                 self.o_scale_mode.setCurrentIndex(0)
+            elif "LiDAR" in self.preset_box.currentText():
+                self.o_scale_mode.setCurrentIndex(0)
+                self.log("Treating this file as metres (LiDAR preset). If it came from photos, choose ArUco markers instead.")
+            elif self.o_scale_mode.currentIndex() == 0:
+                self.o_scale_mode.setCurrentText("ArUco markers")
+                self.log("This scan has no known scale: set the ArUco marker size, pick two points of known distance, "
+                         "or choose 'Already metric' if the file is in metres.")
             self.viewer.set_scan(scan)
+            if scan.metadata.get("format") == "gaussian_splat":
+                self.mode_box.setCurrentText("Splat")
             self.update_overlays()
+            self._remember(path)
             self.log(f"{scan.name}: {len(scan):,} points{' + mesh' if scan.has_mesh else ''}, "
                      f"{'metric' if scan.metric else 'unscaled'}; {scan.metadata.get('format', '')}")
+            info = ftscan.package_info(scan) if scan.metadata.get("package") else {}
+            table_from_rows(self.t_package, kv_rows(info))
+            if info:
+                if self.preset_box.currentText() == "Single plant (general)":
+                    self.preset_box.setCurrentText("iPhonotype app (.ftscan)")
+                for k in ("plant_id", "genotype", "treatment", "notes"):  # fill empty library fields from the app
+                    if info.get(k) and not self.meta_fields[k].text():
+                        self.meta_fields[k].setText(str(info[k]))
+                self.log(f"iPhonotype package: plant {info.get('plant_id') or '(no ID entered in the app)'}, "
+                         f"{info.get('photos', '?')} photos, coverage {info.get('coverage_estimate', float('nan')):.2f}, "
+                         f"light {info.get('light_lux_mean', float('nan')):.0f} lux")
+            if self._auto_run:
+                self._auto_run = False
+                self.run_analysis()
 
         self.run_bg(io.load, path, done=done)
+
+    def show_package_info(self):
+        if self.raw_scan is None or not self.raw_scan.metadata.get("package"):
+            return self._error("Open an iPhonotype (.ftscan) package first")
+        self.show_tab("3D analysis")
+        self.res_tabs.setCurrentWidget(self.t_package)
+
+    def check_vs_photos(self):
+        from .dialogs import FrameCheckDialog
+
+        s = self.raw_scan
+        pkg = s.metadata.get("package") if s is not None else None
+        if not (pkg and next(Path(pkg).rglob("transforms.json"), None)):
+            p, _ =QtWidgets.QFileDialog.getOpenFileName(self, "iPhonotype package", self.settings.value("last_dir", ""),
+                                                         "iPhonotype packages (*.ftscan *.zip);;All files (*)")
+            if not p:
+                return
+            from .. import io
+
+            self.run_bg(io.load, p, done=lambda sc: FrameCheckDialog(self, sc).show())
+            return
+        FrameCheckDialog(self, s).show()
 
     def load_demo(self):
         from ..synthetic import make_tray
@@ -551,7 +790,8 @@ class MainWindow(QtWidgets.QMainWindow):
             aruco_ids=ids, manual_scale=manual, plants=self.o_plants.currentText(),
             expected_plants=self.o_expected.value() or None, grid_rows=self.o_rows.value(), grid_cols=self.o_cols.value(),
             grid_pitch_m=self.o_pitch.value() / 1000, leaves=self.o_leaves.currentText(),
-            largest_cluster=self.o_largest.isChecked())
+            largest_cluster=self.o_largest.isChecked(), heads=self.o_heads.isChecked(), tillers=self.o_tillers.isChecked(),
+            objects=self.o_objects.isChecked(), assume_metric=mode == 0)
 
     def run_analysis(self):
         if self.raw_scan is None:
@@ -560,6 +800,13 @@ class MainWindow(QtWidgets.QMainWindow):
             opt = self._options()
         except Exception as e:
             return self._error(str(e))
+        if opt.leaves == "sam":
+            from ..leafsam import available
+
+            ok, msg = available()
+            if not ok:
+                return self._error(f"AI leaf separation is an optional add-on: {msg}. "
+                                   "Choose 'components' to continue without it.")
         from .. import pipeline
 
         def done(out):
@@ -573,6 +820,15 @@ class MainWindow(QtWidgets.QMainWindow):
             table_from_rows(self.t_plant, kv_rows(res["plant"]))
             table_from_rows(self.t_plants, res.get("plants", []))
             table_from_rows(self.t_leaves, res.get("leaf_candidates", []))
+            table_from_rows(self.t_heads, res.get("heads", []))
+            table_from_rows(self.t_objects, res.get("objects", []))
+            table_from_rows(self.t_app, res.get("app_comparison", []))
+            for key, w in (("app_comparison", self.t_app), ("objects", self.t_objects), ("heads", self.t_heads)):
+                if res.get(key):
+                    self.res_tabs.setCurrentWidget(w)
+                    break
+            else:
+                self.res_tabs.setCurrentWidget(self.t_plant)
             if not scan.metric:
                 self.log("Note: the scan is not metric, so values are in scan units. Use ArUco or two-point scaling.")
             if self.current_rec and self.workspace:
@@ -793,6 +1049,11 @@ class MainWindow(QtWidgets.QMainWindow):
         go = QtWidgets.QPushButton("Analyse roots")
         go.clicked.connect(self.run_roots)
         f.addRow(go)
+        b = QtWidgets.QPushButton("Make a narrated time-lapse video…")
+        b.setToolTip("A video of a folder of root photos in time order, with root length and tips per frame, "
+                     "subtitles and (on Windows) a spoken commentary.")
+        b.clicked.connect(lambda: dialogs.RootVideoDialog(self).exec())
+        f.addRow(b)
         self.rt_table = QtWidgets.QTableWidget()
         f.addRow(self.rt_table)
         page.addWidget(left)
@@ -1337,6 +1598,25 @@ class MainWindow(QtWidgets.QMainWindow):
         b.clicked.connect(self.run_colmap)
         f.addRow(b)
         v.addWidget(g)
+        g = QtWidgets.QGroupBox("More tools")
+        grid = QtWidgets.QGridLayout(g)
+        for i, (txt, tip, fn) in enumerate((
+                ("Receive from phone (Wi-Fi)…", "Send scans from the phone to this PC without cables.",
+                 lambda: dialogs.ReceiveDialog(self).show()),
+                ("Analyse a whole folder…", "One preset for every scan in a folder; one CSV at the end.",
+                 lambda: dialogs.BatchDialog(self).exec()),
+                ("Check scan against its photos…", "iPhonotype: compare the 3D model with each photo (IoU).", self.check_vs_photos),
+                ("Wheat-head detector (photos)…", "Train a detector on your labelled photos, then count heads.",
+                 lambda: dialogs.HeadDetectorDialog(self).exec()),
+                ("Narrated root video…", "Time-lapse of root photos with traits and narration.",
+                 lambda: dialogs.RootVideoDialog(self).exec()),
+                ("Scale evidence from a video…", "Was the ArUco card visible and consistent throughout the capture?",
+                 lambda: dialogs.ScaleEvidenceDialog(self).exec()))):
+            b = QtWidgets.QPushButton(txt)
+            b.setToolTip(tip)
+            b.clicked.connect(fn)
+            grid.addWidget(b, i // 3, i % 3)
+        v.addWidget(g)
         v.addStretch()
         self.tabs.addTab(page, "Tools")
 
@@ -1365,7 +1645,7 @@ class MainWindow(QtWidgets.QMainWindow):
             scan, info = out
             self.raw_scan = self.scan = scan
             self.results = None
-            self.tabs.setCurrentIndex(0)
+            self.show_tab("3D analysis")
             self.viewer.set_scan(scan)
             self.o_scale_mode.setCurrentIndex(0 if info.get("metric") else 1)
             self.log(f"imported from {info['device']} via {info['route']}: {len(scan):,} points"
@@ -1394,7 +1674,7 @@ class MainWindow(QtWidgets.QMainWindow):
             return self._error("Choose an image folder")
         work = Path(imgs).parent / (Path(imgs).name + "_colmap")
         self.run_bg(run_colmap, imgs, work, self.cm_path.text() or None, self.cm_quality.currentText(),
-                    done=lambda p: (self.tabs.setCurrentIndex(0), self.load_scan(str(p))))
+                    done=lambda p: self.open_path(str(p)))
 
 
 def _js(o):

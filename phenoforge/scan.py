@@ -20,6 +20,7 @@ class Scan:
     mesh_vertices / mesh_triangles / mesh_colors : optional triangle mesh
     units_per_metre : 1.0 when the scan is metric (LiDAR or scaled), else unknown
     metric : True once the scale is known (LiDAR import, ArUco or two-point scale)
+    extras  : per-point arrays aligned with ``points`` (e.g. ``splat_radius``, ``splat_alpha``)
     """
 
     points: np.ndarray
@@ -35,6 +36,7 @@ class Scan:
     ground_z: float | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
     history: list[str] = field(default_factory=list)
+    extras: dict[str, np.ndarray] = field(default_factory=dict)
 
     def __post_init__(self):
         self.points = np.asarray(self.points, dtype=np.float64).reshape(-1, 3)
@@ -47,6 +49,7 @@ class Scan:
             self.normals = np.asarray(self.normals, dtype=np.float64).reshape(-1, 3)
         if self.labels is not None:
             self.labels = np.asarray(self.labels, dtype=np.int64).reshape(-1)
+        self.extras = {k: np.asarray(v) for k, v in (self.extras or {}).items()}
 
     # ------------------------------------------------------------------ basics
     def __len__(self) -> int:
@@ -58,6 +61,11 @@ class Scan:
 
     def copy(self) -> "Scan":
         return copy.deepcopy(self)
+
+    def extra(self, key: str) -> np.ndarray | None:
+        """Per-point array ``key`` if present and still aligned with ``points``, else None."""
+        a = self.extras.get(key)
+        return a if a is not None and len(a) == len(self.points) else None
 
     def subset(self, mask: np.ndarray, note: str | None = None) -> "Scan":
         """Return a new scan holding only the points where ``mask`` is True (mesh dropped
@@ -74,6 +82,7 @@ class Scan:
             ground_z=self.ground_z,
             metadata=dict(self.metadata),
             history=list(self.history),
+            extras={k: v[mask] for k, v in self.extras.items() if len(v) == len(self.points)},
         )
         if self.has_mesh:
             s.mesh_vertices, s.mesh_triangles, s.mesh_colors = _crop_mesh_to_bounds(self, s.points)
@@ -86,10 +95,11 @@ class Scan:
         T = np.asarray(T, dtype=np.float64)
         R, t = T[:3, :3], T[:3, 3]
         self.points = self.points @ R.T + t
+        s = np.cbrt(abs(np.linalg.det(R))) or 1.0  # uniform scale part of R
         if self.normals is not None:
-            # remove the uniform scale from R before rotating normals
-            s = np.cbrt(abs(np.linalg.det(R))) or 1.0
             self.normals = self.normals @ (R / s).T
+        if "splat_radius" in self.extras and s != 1.0:
+            self.extras["splat_radius"] = self.extras["splat_radius"] * s  # radii are lengths
         if self.mesh_vertices is not None:
             self.mesh_vertices = self.mesh_vertices @ R.T + t
 

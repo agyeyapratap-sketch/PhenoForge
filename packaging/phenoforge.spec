@@ -24,7 +24,8 @@ for opt in ("pxr", "laspy", "lazrs", "rawpy"):
     except Exception:
         pass
 hidden += collect_submodules("phenoforge") + ["OpenGL.platform.win32", "OpenGL.arrays.numpymodule"]
-datas += [(os.path.join(ROOT, "phenoforge", "gui", "icon.png"), "phenoforge/gui")]
+datas += [(os.path.join(ROOT, "phenoforge", "gui", "icon.png"), "phenoforge/gui"),
+          (os.path.join(ROOT, "phenoforge", "guide"), "phenoforge/guide")]  # in-app user guide
 EXCLUDES = ["tkinter", "IPython", "jupyter", "notebook", "torch", "tensorflow"]
 
 a = Analysis([os.path.join(SPECPATH, "launcher.py")], pathex=[ROOT], binaries=binaries, datas=datas,

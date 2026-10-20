@@ -25,20 +25,61 @@ class Options:
     aruco_dict: str = "DICT_4X4_50"
     aruco_ids: list[int] | None = None
     manual_scale: float = 0.0          # >0 multiplies coordinates
+    assume_metric: bool = False        # the file is already in metres (LiDAR app exports), so report metric units
     plants: str = "single"             # single | watershed | grid | dbscan
     expected_plants: int | None = None
     grid_rows: int = 0
     grid_cols: int = 0
     grid_pitch_m: float = 0.0
-    leaves: str = "components"         # none | components | region
+    leaves: str = "components"         # none | components | region | sam (AI, optional install)
     leaf_min_points: int = 30
     largest_cluster: bool = False
+    heads: bool = False                # wheat head (spike) count, heuristic
+    tillers: bool = False              # tiller count from stem cross-sections
+    objects: bool = False              # per-object dimensions (fruit, tubers, seeds on a bench)
     extra: dict = field(default_factory=dict)
+
+
+# Ready-made settings for common jobs: name -> (description, Options fields)
+PRESETS: dict[str, tuple[str, dict]] = {
+    "Single plant (general)": ("One plant, any scan. Set the scale yourself.", {}),
+    "iPhonotype app (.ftscan)": ("Open the .ftscan package. The splat is in metres from the app; check with ArUco if a card is in view.",
+                                 {"y_up": False, "plants": "single", "leaves": "components"}),
+    "iPhone LiDAR app (PLY / OBJ / USDZ)": ("LiDAR export in metres. Tick Y-up only if the plant lies on its side.",
+                                            {"plants": "single", "leaves": "components", "assume_metric": True}),
+    "Photos or video with ArUco (Android, DSLR, turntable)": ("Photogrammetry is not metric: scale from 50 mm ArUco markers.",
+                                                              {"aruco_size_m": 0.05, "plants": "single"}),
+    "Tray of touching plants": ("Separates plants by watershed; enter the number of plants.",
+                                {"plants": "watershed", "leaves": "none"}),
+    "Bench of pots in a grid": ("Assigns plants to pots; enter rows, columns and pot pitch.", {"plants": "grid", "leaves": "none"}),
+    "Wheat: heads and tillers": ("Counts heads (spikes) and tillers. Heuristic: validate against hand counts.",
+                                 {"plants": "single", "leaves": "components", "heads": True, "tillers": True, "vegetation": "none"}),
+    "Fruit / objects on a bench": ("Dimensions of each separate object; keeps all colours.",
+                                   {"plants": "single", "leaves": "none", "vegetation": "none", "objects": True}),
+}
+
+
+def preset_options(name: str, **overrides) -> "Options":
+    """Options for a named preset, with any fields overridden."""
+    return Options(**{**PRESETS[name][1], **overrides})
 
 
 def run(scan: Scan, opt: Options, log=print) -> tuple[Scan, dict]:
     s = scan
     res: dict = {"options": asdict(opt)}
+    app = {}
+    if scan.metadata.get("package"):
+        from . import ftscan
+
+        res["package"] = ftscan.package_info(scan)
+        app = ftscan.app_traits(scan)
+        if res["package"]:
+            log(f"iPhonotype package: plant {res['package'].get('plant_id') or '(no ID)'}, "
+                f"{res['package'].get('photos', '?')} photos, scale {res['package'].get('scale_source', 'unknown')}")
+    if opt.assume_metric and not s.metric and opt.aruco_size_m <= 0 and opt.manual_scale <= 0:
+        s = s.copy()
+        s.metric = True
+        s.history.append("treated as metres (file from a LiDAR app)")
     if opt.y_up:
         s = clean.convert_y_up(s)
     if opt.voxel > 0:
@@ -79,6 +120,8 @@ def run(scan: Scan, opt: Options, log=print) -> tuple[Scan, dict]:
         cen = segment.pot_grid_centres(opt.grid_rows, opt.grid_cols, opt.grid_pitch_m, origin=origin)
         labels = segment.plants_pot_grid(s, cen, max_radius=opt.grid_pitch_m * 0.75)
         res["pot_centres"] = cen.tolist()
+    elif opt.plants == "grid":
+        log("Pot grid skipped: enter rows, columns and pot pitch")
     if labels is not None:
         labels = segment.order_labels_reading(s, labels)
         s.labels = labels
@@ -97,7 +140,11 @@ def run(scan: Scan, opt: Options, log=print) -> tuple[Scan, dict]:
             sub = s.subset(g)
             if len(sub) < opt.leaf_min_points:
                 continue
-            if opt.leaves == "region":
+            if opt.leaves == "sam":
+                from . import leafsam
+
+                ll = leafsam.segment_leaves(sub, min_points=opt.leaf_min_points, log=log)
+            elif opt.leaves == "region":
                 if len(sub) > 60000:
                     sub = clean.voxel_downsample(sub, _spacing(sub) * 2)
                     g = None
@@ -113,10 +160,34 @@ def run(scan: Scan, opt: Options, log=print) -> tuple[Scan, dict]:
                 leaf_lab[np.where(g)[0]] = l2
                 nxt = max(nxt, l2.max(initial=-1) + 1)
         res["leaf_candidates"] = leaf_rows
-        res["leaf_labels_note"] = "visible leaf candidates; touching leaves may merge"
+        res["leaf_labels_note"] = ("AI (SAM) leaf instances from rendered views; check them visually" if opt.leaves == "sam"
+                                   else "visible leaf candidates; touching leaves may merge")
         if labels is None:
             s.labels = leaf_lab
         s.metadata["leaf_labels"] = leaf_lab
+    if opt.heads:
+        from . import heads
+
+        head_lab, res["heads"], summary = heads.count_heads(s, log=log)
+        s.metadata["head_labels"] = head_lab
+        res["plant"].update(summary)
+        log(f"heads: {summary.get('head_count', 0)}")
+    if opt.tillers:
+        from . import heads
+
+        summary, _ = heads.count_tillers(s, log=log)
+        res["plant"].update(summary)
+        log(f"tillers: {summary.get('tiller_count', '?')}")
+    if opt.objects:
+        from . import objects
+
+        obj_lab, res["objects"] = objects.object_dimensions(s, log=log)
+        s.metadata["object_labels"] = obj_lab
+        log(f"{len(res['objects'])} object(s) measured")
+    if app:
+        from . import ftscan
+
+        res["app_comparison"] = ftscan.compare_with_app(res["plant"], app, s.metric)
     res["history"] = s.history
     res["metric"] = s.metric
     res["units"] = "m, m2, m3" if s.metric else "scan units (not scaled)"
@@ -138,14 +209,18 @@ def save_results(res: dict, out_dir, name: str) -> dict:
     p = out / f"{name}_traits.json"
     p.write_text(json.dumps(res, indent=2, default=_jsonable), encoding="utf-8")
     files["json"] = str(p)
-    write_csv(out / f"{name}_plant.csv", [{"scan": name, **res["plant"]}])
+    ids = {k: v for k, v in res.get("package", {}).items() if k in ("plant_id", "genotype", "treatment", "operator", "started_utc")}
+    write_csv(out / f"{name}_plant.csv", [{"scan": name, **ids, **{k: v for k, v in res["plant"].items() if not isinstance(v, list)}}])
     files["plant_csv"] = str(out / f"{name}_plant.csv")
-    if res.get("plants"):
-        write_csv(out / f"{name}_plants.csv", [{"scan": name, **r} for r in res["plants"]])
-        files["plants_csv"] = str(out / f"{name}_plants.csv")
-    if res.get("leaf_candidates"):
-        write_csv(out / f"{name}_leaves.csv", [{"scan": name, **r} for r in res["leaf_candidates"]])
-        files["leaves_csv"] = str(out / f"{name}_leaves.csv")
+    for key, suffix in (("plants", "plants"), ("leaf_candidates", "leaves"), ("heads", "heads"), ("objects", "objects"),
+                        ("app_comparison", "vs_iphonotype")):
+        if res.get(key):
+            write_csv(out / f"{name}_{suffix}.csv", [{"scan": name, **{k: v for k, v in r.items() if not isinstance(v, list)}}
+                                                     for r in res[key]])
+            files[f"{suffix}_csv"] = str(out / f"{name}_{suffix}.csv")
+    if res.get("package"):
+        write_csv(out / f"{name}_package.csv", [{"scan": name, **res["package"]}])
+        files["package_csv"] = str(out / f"{name}_package.csv")
     return files
 
 

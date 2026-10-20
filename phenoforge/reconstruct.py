@@ -27,7 +27,8 @@ def run_colmap(image_dir, work_dir, colmap: str | None = None, quality: str = "m
                dense: bool = True, log=print, mask_dir=None, single_camera: bool = False) -> Path:
     exe = find_colmap(colmap)
     if exe is None:
-        raise FileNotFoundError("COLMAP not found. Install it from https://colmap.github.io and set its path in Settings.")
+        raise FileNotFoundError("COLMAP not found. Install it from https://colmap.github.io and set its path in the COLMAP box on the Tools tab "
+                                "(or pass --colmap on the command line).")
     work = Path(work_dir)
     work.mkdir(parents=True, exist_ok=True)
     cmd = [exe, "automatic_reconstructor", "--workspace_path", str(work), "--image_path", str(image_dir),

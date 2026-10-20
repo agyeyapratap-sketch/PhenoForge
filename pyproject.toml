@@ -23,12 +23,15 @@ dependencies = [
   "PySide6>=6.6",
   "pyqtgraph>=0.13.4",
   "PyOpenGL>=3.1",
+  "pillow-heif>=0.16",
 ]
 
 [project.optional-dependencies]
 usd = ["usd-core>=24.0"]
 las = ["laspy[lazrs]>=2.4"]
 raw = ["rawpy>=0.19"]
+ai = ["ultralytics>=8.3"]                  # SAM 2.1 leaf instances and the wheat-head detector
+voice = ["pyttsx3>=2.90", "imageio-ffmpeg>=0.5"]  # spoken narration for root videos
 dev = ["pytest>=7", "pyinstaller>=6.3"]
 
 [project.scripts]
@@ -42,3 +45,4 @@ include = ["phenoforge*"]
 
 [tool.setuptools.package-data]
 "phenoforge.gui" = ["icon.png"]
+"phenoforge" = ["guide/*.md", "guide/img/*"]

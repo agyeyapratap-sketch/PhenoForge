@@ -336,6 +336,8 @@ def _cm_units(d: dict) -> dict:
     for k, v in d.items():
         if not isinstance(v, (int, float)) or isinstance(v, bool):
             continue
+        if "_kg_" in k:  # densities (kg/m3) are not volumes
+            continue
         if k.endswith("_m3"):
             extra[k[:-3] + "_cm3"] = v * 1e6
         elif k.endswith("_m2"):

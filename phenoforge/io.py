@@ -75,9 +75,16 @@ def _load_ply(p: Path, mesh_samples: int, splat_min_opacity: float) -> Scan:
     if {"f_dc_0", "f_dc_1", "f_dc_2"} <= props:  # 3D Gaussian Splatting
         rgb = 0.5 + SH_C0 * np.column_stack([v["f_dc_0"], v["f_dc_1"], v["f_dc_2"]])
         keep = np.ones(len(xyz), bool)
+        alpha = np.ones(len(xyz))
         if "opacity" in props:
-            keep = 1.0 / (1.0 + np.exp(-np.asarray(v["opacity"], float))) >= splat_min_opacity
+            alpha = 1.0 / (1.0 + np.exp(-np.asarray(v["opacity"], float)))
+            keep = alpha >= splat_min_opacity
         s = Scan(points=xyz[keep], colors=np.clip(rgb[keep], 0, 1))
+        s.extras["splat_alpha"] = alpha[keep].astype(np.float32)
+        if {"scale_0", "scale_1", "scale_2"} <= props:
+            # area-equivalent disc radius: sqrt of the two largest axes (splats are often flat)
+            ax = np.sort(np.exp(np.column_stack([v["scale_0"], v["scale_1"], v["scale_2"]]).astype(float)), axis=1)
+            s.extras["splat_radius"] = np.sqrt(ax[keep, 1] * ax[keep, 2]).astype(np.float32)
         s.metadata["format"] = "gaussian_splat"
         s.metadata["splats_total"] = int(len(xyz))
         return s
@@ -353,6 +360,22 @@ def _load_package_dir(d: Path, mesh_samples: int) -> Scan:
     if geom is None:
         raise ValueError(f"No supported geometry in package {d.name}")
     scan = load(geom, mesh_samples)
+    if geom.suffix.lower() == ".ply" and _ios_frame(files):
+        # iOS capture frames (ARKit / Object Capture, e.g. iPhonotype .ftscan) are Y-up; PLY carries no up axis
+        R = np.array([[1, 0, 0, 0], [0, 0, -1, 0], [0, 1, 0, 0], [0, 0, 0, 1]], float)
+        scan.transform(R)
+        scan.metadata["package_transform"] = R  # maps package (capture) coordinates to the loaded scan
+        scan.history.append("converted Y-up to Z-up (iOS capture frame in package manifest)")
+        wf = next((f for f in files if f.name == "workflow.json"), None)
+        try:
+            w = json.loads(wf.read_text(errors="ignore")) if wf else {}
+        except Exception:
+            w = {}
+        if (scan.metadata.get("format") == "gaussian_splat" and w.get("on_device_splat_geometry_units") == "meters"
+                and w.get("metric_scale_verified")):
+            scan.metric = True
+            scan.history.append(f"metric from the package ({w.get('metric_scale_source', '?')}, "
+                                f"confidence {w.get('metric_scale_confidence', float('nan')):.2f})")
     scan.metadata["package"] = str(d)
     scan.metadata["images"] = [str(f) for f in files if f.suffix.lower() in IMAGE_EXT]
     for j in files:
@@ -364,14 +387,60 @@ def _load_package_dir(d: Path, mesh_samples: int) -> Scan:
     return scan
 
 
-def _load_zip(p: Path, mesh_samples: int) -> Scan:
-    td = Path(tempfile.mkdtemp(prefix="phenoforge_pkg_"))
+def _ios_frame(files: list[Path]) -> bool:
+    """True when the package manifest says its coordinates come from an iOS capture session."""
+    for f in files:
+        if f.name.lower() == "manifest.json" and f.stat().st_size < 2_000_000:
+            try:
+                frame = json.loads(f.read_text(errors="ignore")).get("coordinate_frames", {}).get("source_frame", "")
+            except Exception:
+                continue
+            if str(frame).lower().startswith(("ios_", "arkit")):
+                return True
+    return False
+
+
+PACKAGE_CACHE = Path(tempfile.gettempdir()) / "phenoforge_packages"
+CACHE_KEEP = 4  # unpacked packages kept; packages can be ~1 GB each
+
+
+def _unpack(p: Path) -> Path:
+    """Unpack a zip package once into a shared cache; reopening the same file reuses it."""
+    import hashlib
+    import shutil
+    import time
+
+    st = p.stat()
+    key = hashlib.sha1(f"{p.resolve()}|{st.st_size}|{st.st_mtime_ns}".encode()).hexdigest()[:16]
+    td = PACKAGE_CACHE / key  # short: Windows paths are limited to 260 characters
+    done = td / ".unpacked"
+    if done.exists():
+        os.utime(done)  # most recently used
+        return td
+    shutil.rmtree(td, ignore_errors=True)
+    td.mkdir(parents=True)
     with zipfile.ZipFile(p) as z:
-        for m in z.infolist():  # guard against path traversal
-            target = (td / m.filename).resolve()
+        for m in z.infolist():
+            if m.filename.startswith("__MACOSX/") or "/._" in m.filename:  # macOS metadata, not scan data
+                continue
+            target = (td / m.filename).resolve()  # guard against path traversal
             if not str(target).startswith(str(td.resolve())):
                 continue
             z.extract(m, td)
+    done.write_text(str(p))
+    # drop the least recently used packages beyond CACHE_KEEP
+    old = sorted((d for d in PACKAGE_CACHE.iterdir() if (d / ".unpacked").exists() and d != td),
+                 key=lambda d: (d / ".unpacked").stat().st_mtime, reverse=True)
+    for d in old[CACHE_KEEP - 1:]:
+        shutil.rmtree(d, ignore_errors=True)
+    for d in Path(tempfile.gettempdir()).glob("phenoforge_pkg_*"):  # folders left by older versions
+        if time.time() - d.stat().st_mtime > 3600:
+            shutil.rmtree(d, ignore_errors=True)
+    return td
+
+
+def _load_zip(p: Path, mesh_samples: int) -> Scan:
+    td = _unpack(p)
     scan = _load_package_dir(td, mesh_samples)
     scan.name = p.stem
     scan.source = str(p)

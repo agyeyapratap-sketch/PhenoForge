@@ -16,7 +16,7 @@ import numpy as np
 def _opts_from_args(a) -> "pipeline.Options":
     from . import pipeline
 
-    return pipeline.Options(
+    opt = pipeline.Options(
         voxel=a.voxel, outliers=not a.no_outliers, align_ground=not a.no_ground, remove_ground=not a.keep_ground,
         y_up=a.y_up, vegetation=a.vegetation, vegetation_threshold=a.veg_threshold,
         aruco_size_m=a.aruco_mm / 1000.0 if a.aruco_mm else 0.0, aruco_dict=a.aruco_dict,
@@ -24,10 +24,42 @@ def _opts_from_args(a) -> "pipeline.Options":
         manual_scale=a.scale, plants=a.plants, expected_plants=a.expected,
         grid_rows=a.grid[0] if a.grid else 0, grid_cols=a.grid[1] if a.grid else 0,
         grid_pitch_m=a.pitch_mm / 1000.0 if a.pitch_mm else 0.0, leaves=a.leaves,
-        largest_cluster=a.largest_cluster)
+        largest_cluster=a.largest_cluster, heads=a.heads, tillers=a.tillers, objects=a.objects, assume_metric=a.metric)
+    if a.preset:
+        # the preset fills in every option left at its default
+        base = pipeline.Options()
+        for k, v in pipeline.PRESETS[_preset_name(a.preset)][1].items():
+            if getattr(opt, k) == getattr(base, k):
+                setattr(opt, k, v)
+    return opt
+
+
+def _preset_name(text: str) -> str:
+    from .pipeline import PRESETS
+
+    hits = [n for n in PRESETS if text.lower() in n.lower()]
+    if len(hits) != 1:
+        sys.exit(f"--preset '{text}' matches {len(hits)} presets; choose one of:\n  " + "\n  ".join(PRESETS))
+    return hits[0]
+
+
+def _inputs(paths) -> list[Path]:
+    """Expand folders into the scans inside them; an .ftscan or package folder is one scan."""
+    from . import io
+
+    files = []
+    for f in paths:
+        p = Path(f)
+        if p.is_dir() and p.suffix.lower() != ".ftscan" and not (p / "manifest.json").exists():
+            files += sorted(x for x in p.iterdir() if x.suffix.lower() in io.SUPPORTED)
+        else:
+            files.append(p)
+    return files
 
 
 def _add_analysis_args(p):
+    p.add_argument("--preset", default="", help="ready-made settings, e.g. 'iphonotype', 'wheat', 'tray', 'fruit' "
+                                                 "(see 'phenoforge presets'); explicit flags still win")
     p.add_argument("--out", default="phenoforge_results")
     p.add_argument("--voxel", type=float, default=0.0, help="downsample voxel (scan units), 0 = off")
     p.add_argument("--no-outliers", action="store_true")
@@ -40,11 +72,16 @@ def _add_analysis_args(p):
     p.add_argument("--aruco-dict", default="DICT_4X4_50")
     p.add_argument("--aruco-ids", default="", help="comma-separated IDs to accept, e.g. 0,1,2,3")
     p.add_argument("--scale", type=float, default=0.0, help="manual scale factor")
+    p.add_argument("--metric", action="store_true", help="the file is already in metres (LiDAR app export)")
     p.add_argument("--plants", default="single", choices=["single", "watershed", "grid", "dbscan"])
     p.add_argument("--expected", type=int, default=None, help="expected number of plants")
     p.add_argument("--grid", type=int, nargs=2, metavar=("ROWS", "COLS"))
     p.add_argument("--pitch-mm", type=float, default=0.0)
-    p.add_argument("--leaves", default="components", choices=["none", "components", "region"])
+    p.add_argument("--leaves", default="components", choices=["none", "components", "region", "sam"],
+                   help="leaf candidates; 'sam' uses the optional AI model (pip install ultralytics)")
+    p.add_argument("--heads", action="store_true", help="count wheat heads (spikes), heuristic")
+    p.add_argument("--tillers", action="store_true", help="count tillers from stem cross-sections")
+    p.add_argument("--objects", action="store_true", help="dimensions of each separate object (fruit, tubers)")
     p.add_argument("--largest-cluster", action="store_true")
     p.add_argument("--save-cloud", action="store_true", help="also write the cleaned, labelled cloud (.ply)")
 
@@ -52,10 +89,7 @@ def _add_analysis_args(p):
 def cmd_analyse(a):
     from . import io, pipeline
 
-    files = []
-    for f in a.inputs:
-        p = Path(f)
-        files += sorted(x for x in p.iterdir() if x.suffix.lower() in io.SUPPORTED) if p.is_dir() else [p]
+    files = _inputs(a.inputs)
     rows = []
     for f in files:
         print(f"== {f}")
@@ -64,9 +98,11 @@ def cmd_analyse(a):
         files_out = pipeline.save_results(res, a.out, f.stem)
         if a.save_cloud:
             io.save_point_cloud(out, Path(a.out) / f"{f.stem}_clean.ply")
-        rows.append({"scan": f.stem, **{k: v for k, v in res["plant"].items() if not isinstance(v, list)}})
+        ids = {k: v for k, v in res.get("package", {}).items() if k in ("plant_id", "genotype", "treatment")}
+        rows.append({"scan": f.stem, **ids, **{k: v for k, v in res["plant"].items() if not isinstance(v, list)}})
         print(json.dumps({k: res["plant"][k] for k in ("height_max", "projected_area_m2", "surface_area_m2",
-                                                       "hull_volume_m3", "voxel_volume_m3")}, indent=1))
+                                                       "hull_volume_m3", "voxel_volume_m3", "head_count", "tiller_count")
+                          if k in res["plant"]}, indent=1))
         print("written:", ", ".join(files_out.values()))
     if len(rows) > 1:
         from .phenotype2d import write_csv
@@ -254,6 +290,84 @@ def cmd_capture(a):
     print("scan:", p, "(not metric: scale it with --aruco-mm when analysing)" if not scan.metric else "")
 
 
+def cmd_presets(a):
+    from .pipeline import PRESETS
+
+    for name, (desc, fields) in PRESETS.items():
+        print(f"{name}\n    {desc}\n    {fields or '(defaults)'}")
+
+
+def cmd_info(a):
+    from . import ftscan, io
+
+    for f in _inputs(a.inputs):
+        scan = io.load(f)
+        print(f"== {f}\n{len(scan):,} points{' + mesh' if scan.has_mesh else ''}, "
+              f"{'metric' if scan.metric else 'not metric'}, format {scan.metadata.get('format', '?')}")
+        info = ftscan.package_info(scan)
+        for k, v in {**info, **{f"app_{k}": v for k, v in ftscan.app_traits(scan).items()}}.items():
+            print(f"  {k:32s} {v}")
+
+
+def cmd_receive(a):
+    from .handoff import serve_forever
+
+    serve_forever(a.inbox, port=a.port, token=a.token or None)
+
+
+def cmd_heads_train(a):
+    from . import heads
+
+    yaml = Path(a.data)
+    if yaml.is_dir():
+        yaml = heads.make_dataset_yaml(yaml / "images", yaml / "labels", yaml / "dataset.yaml")
+    print("model:", heads.train_detector(yaml, a.out, epochs=a.epochs, model=a.model, imgsz=a.imgsz))
+
+
+def cmd_heads_detect(a):
+    from . import heads
+
+    rows = heads.detect_heads_images(a.inputs, a.weights, a.out, conf=a.conf)
+    print(f"{len(rows)} image(s), {sum(r['head_count'] for r in rows)} heads; written to {a.out}")
+
+
+def cmd_rootvideo(a):
+    from . import narrate, phenotype2d
+
+    imgs = []
+    for f in a.inputs:
+        p = Path(f)
+        imgs += sorted(x for x in p.iterdir() if x.suffix.lower() in phenotype2d.IMG_EXT) if p.is_dir() else [p]
+    info = narrate.make_root_video(imgs, a.out, mm_per_px=a.mm_per_px, aruco_mm=a.aruco_mm,
+                                   roots_dark={"auto": None, "dark": True, "light": False}[a.roots],
+                                   seconds_per_image=a.seconds, narrate=not a.silent, title=a.title)
+    print(json.dumps(info, indent=1, default=str))
+
+
+def cmd_scale_evidence(a):
+    from .videoevidence import video_scale_evidence
+
+    _, summary = video_scale_evidence(a.video, a.mm, dictionary=a.aruco_dict, every_n=a.every, out_dir=a.out)
+    print(json.dumps(summary, indent=1, default=str))
+
+
+def cmd_framecheck(a):
+    from . import framecheck, io
+    from .phenotype2d import write_csv, write_image
+
+    scan = io.load(a.package)
+    rows, summary = framecheck.compare_package(scan, max_frames=a.frames)
+    out = Path(a.out)
+    out.mkdir(parents=True, exist_ok=True)
+    write_csv(out / "frame_check.csv", rows)
+    frames = framecheck.load_frames(scan.metadata.get("package", a.package))
+    for r in sorted(rows, key=lambda r: r.get("iou", 0))[:3]:  # overlays of the worst frames
+        fr = next((f for f in frames if f["name"] == r["name"]), None)
+        if fr is not None:
+            write_image(out / f"overlay_{Path(fr['name']).stem}.png", framecheck.compare_frame(scan, fr)["overlay"])
+    print(json.dumps(summary, indent=1, default=str))
+
+
 def cmd_demo(a):
     from . import io, synthetic
 
@@ -370,6 +484,59 @@ def main(argv=None):
     p.add_argument("--colmap", default=None)
     p.add_argument("--quality", default="medium", choices=["low", "medium", "high", "extreme"])
     p.set_defaults(fn=cmd_capture)
+
+    p = sub.add_parser("presets", help="list the ready-made analysis settings")
+    p.set_defaults(fn=cmd_presets)
+
+    p = sub.add_parser("info", help="what is in a scan or iPhonotype package (plant ID, light, scale, app traits)")
+    p.add_argument("inputs", nargs="+")
+    p.set_defaults(fn=cmd_info)
+
+    p = sub.add_parser("receive", help="receive scans from a phone over Wi-Fi (open the printed link or QR on the phone)")
+    p.add_argument("--inbox", default="phenoforge_inbox")
+    p.add_argument("--port", type=int, default=8765)
+    p.add_argument("--token", default="", help="access code in the link (random if empty)")
+    p.set_defaults(fn=cmd_receive)
+
+    p = sub.add_parser("heads-train", help="train a wheat-head detector on your labelled photos (needs: pip install ultralytics)")
+    p.add_argument("data", help="dataset.yaml, or a folder with images/ and labels/ in YOLO format")
+    p.add_argument("--out", default="head_detector")
+    p.add_argument("--epochs", type=int, default=100)
+    p.add_argument("--model", default="yolov8n.pt")
+    p.add_argument("--imgsz", type=int, default=1024)
+    p.set_defaults(fn=cmd_heads_train)
+
+    p = sub.add_parser("heads-detect", help="count wheat heads in photos with a trained detector")
+    p.add_argument("inputs", nargs="+")
+    p.add_argument("--weights", required=True, help="best.pt from heads-train")
+    p.add_argument("--out", default="heads_detected")
+    p.add_argument("--conf", type=float, default=0.25)
+    p.set_defaults(fn=cmd_heads_detect)
+
+    p = sub.add_parser("rootvideo", help="narrated video of a root image time series, with traits per frame")
+    p.add_argument("inputs", nargs="+", help="images or a folder, in time order")
+    p.add_argument("--out", default="roots_video.mp4")
+    p.add_argument("--mm-per-px", type=float, default=None)
+    p.add_argument("--aruco-mm", type=float, default=0.0)
+    p.add_argument("--roots", default="auto", choices=["auto", "dark", "light"])
+    p.add_argument("--seconds", type=float, default=3.0, help="seconds per image")
+    p.add_argument("--title", default="")
+    p.add_argument("--silent", action="store_true", help="no spoken narration (subtitles only)")
+    p.set_defaults(fn=cmd_rootvideo)
+
+    p = sub.add_parser("scale-evidence", help="check that the ArUco scale stayed visible and consistent through a capture video")
+    p.add_argument("video")
+    p.add_argument("--mm", type=float, required=True, help="printed marker side in mm")
+    p.add_argument("--aruco-dict", default="DICT_4X4_50")
+    p.add_argument("--every", type=int, default=5)
+    p.add_argument("--out", default="scale_evidence")
+    p.set_defaults(fn=cmd_scale_evidence)
+
+    p = sub.add_parser("framecheck", help="compare an iPhonotype scan with its own photos (IoU per frame)")
+    p.add_argument("package")
+    p.add_argument("--frames", type=int, default=12)
+    p.add_argument("--out", default="frame_check")
+    p.set_defaults(fn=cmd_framecheck)
 
     p = sub.add_parser("demo", help="write a synthetic tray scan with ArUco markers")
     p.add_argument("--out", default="demo_tray.ply")
