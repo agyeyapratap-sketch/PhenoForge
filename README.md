@@ -77,6 +77,7 @@ python -m phenoforge --help     # command line
    - `SOP-4_3D_roots.pdf`
    - `SOP-5_Turntable_rig.pdf` (build, print and run the turntable)
    - `SOP-6_iPhone_roots_spike.pdf` (quick iPhone root scans on a spike stand)
+   - `SOP-7_iPhonotype_app.pdf` (iPhonotype app scans, opened from the .ftscan package)
    - `SOP-0_Overview_capture_to_traits.pdf` for the whole flow.
 3. Import: Tools tab > Import from device, or `phenoforge capture <file|video|folder> --device auto`.
 4. Analyse: on the 3D analysis tab set the marker size and plant mode, then Run. Or from

@@ -149,6 +149,7 @@ def overview():
     s.append(Paragraph("Choose a capture route", H2))
     s.append(table(["Device", "Best for", "Metric scale", "Output to PhenoForge", "SOP"], [
         ["iPhone / iPad Pro with LiDAR", "Fast single plants and trays, field work", "Yes (check with markers)", "PLY, OBJ, GLB, USDZ from the scanning app", "SOP-1"],
+        ["iPhonotype app (iPhone)", "Guided single-plant scans with traits on the phone", "Camera-based (check with markers)", ".ftscan package → Open scan", "SOP-7"],
         ["Android phone", "Low-cost capture anywhere", "No: ArUco markers", "App export (OBJ/GLB/PLY/splat), or video / photos reconstructed in the app", "SOP-2"],
         ["DSLR / mirrorless", "Highest detail, repeatable lab imaging, publications", "No: ArUco markers", "RAW or JPEG photos reconstructed in the app", "SOP-3"],
         ["Any camera, excavated roots", "Root crowns and washed root systems", "No: ArUco or reference box", "Photos → 3D roots tab", "SOP-4"],
@@ -504,6 +505,72 @@ def spike():
     build("SOP-6_iPhone_roots_spike.pdf", "spike", s)
 
 
+def iphonotype():
+    s = [banner("SOP-7  iPhonotype app (iPhone)", "Guided orbit capture on the phone, analysed in PhenoForge from the .ftscan package", "SOP-7"),
+         Spacer(1, 6)]
+    s += figure("iphone.jpg")
+    s.append(Paragraph(
+        "iPhonotype guides you around the plant and takes 90–140 photos. On the phone it then builds a textured mesh (Apple photogrammetry, "
+        "USDZ), a 3D Gaussian-splat cloud (PLY, in metres) and preliminary traits, and exports everything as one <b>.ftscan</b> package "
+        "(a zip file). PhenoForge opens the package directly and measures the splat cloud. A test scan took 2.6 min to capture and about "
+        "4 min to process on the phone. LiDAR is not needed: the app uses the rear camera and the motion sensors.", BODY))
+    s.append(Paragraph("What you need", H2))
+    s.append(box("Checklist", ["iPhone with the iPhonotype app (tested with app version 2.3.1, iOS 26)",
+                               "ArUco card (DICT_4X4_50, 50 mm) beside the pot; the app also recommends markers for scale checks",
+                               "Plain, matte, non-green background and diffuse light (the test scan had about 600 lux)",
+                               "About 50 cm of free space all round the plant, and no wind",
+                               "A way to copy files to the PC (AirDrop to a Mac, OneDrive or USB): a package is about 250–300 MB"], cols=1))
+    s.append(Paragraph("Capture", H2))
+    s.append(steps([
+        ("Set up", "Put the pot on a matte surface with the ArUco card flat beside it, in view from every side. Put the plant label where the camera sees it."),
+        ("Start a scan and label it", "Start a new <b>Spatial Orbit</b> scan. Fill in the plant ID, genotype, treatment and operator: they are stored in the "
+                                      "package (manifest.json) and are otherwise empty."),
+        ("Orbit", "Follow the app's guide: one slow, close orbit, then a <b>higher pass</b> and a <b>lower pass</b>. Keep the whole plant and the "
+                  "card in the frame. Aim for about 140 photos; 90 is the app's minimum."),
+        ("Let it process", "Wait until the mesh and the splat are finished on the phone before you export. Keep the phone plugged in and out of the sun "
+                           "so it does not slow down from heat."),
+        ("Export", "Export the <b>.ftscan</b> package and copy it to the PC. Rename it with the plant ID and date, e.g. "
+                   "<i>W123_2026-10-19.ftscan.zip</i>. You do not need to unzip it."),
+    ]))
+    s.append(Spacer(1, 4))
+    s.append(Paragraph("In PhenoForge", H2))
+    s.append(steps([
+        ("Open the package", "<b>3D analysis</b> tab &gt; <b>Open scan…</b> and choose the .ftscan.zip (or the unzipped .ftscan folder). "
+                             "PhenoForge loads the splat cloud and drops faint splats (opacity below 0.3)."),
+        ("Clean and frame", "Leave <i>Input is Y-up</i> <b>unticked</b>: ticking it lays iPhonotype scans on their side. Keep <i>Remove outliers</i>, "
+                            "<i>Fit ground plane</i> and <i>Remove ground points</i> ticked, and use vegetation index <i>exg</i> to remove the pot and soil."),
+        ("Set the scale", "With a card: <b>ArUco markers</b> and the measured marker size, then check <b>Markers image</b>. Without a card: "
+                          "<i>Already metric</i> uses the app's camera-based scale, or <i>Two picked points</i> across a known distance such as the pot rim."),
+    ] + ANALYSE_STEPS[3:]))
+    s.append(Paragraph("What is in the package", H2))
+    s.append(table(["File", "What it is", "Use in PhenoForge"], [
+        ["splats/iphone_splat_reconstruction.ply", "Gaussian-splat cloud in metres, scaled from the camera path (confidence in 3dgs/workflow.json)",
+         "Default. Its height matched the app's plant height within 1.5 cm in the test scan"],
+        ["mesh/photogrammetry_mesh.usdz", "Textured mesh in Apple reconstruction units; includes the pot", "Optional. Height includes the pot unless it is filtered out"],
+        ["analysis/on_device_*.json", "The app's preliminary traits and top-view plant masks", "For comparison only; the package says desktop results replace them"],
+        ["rgb/, 3dgs/images, 3dgs/transforms.json", "Photos and camera poses", "Re-run in COLMAP or Nerfstudio if needed"],
+    ], [0.38, 0.34, 0.28]))
+    s.append(Paragraph("Quality checks", H2))
+    s.append(table(["Check", "Pass", "If it fails"], [
+        ["Photos in the package (logs/native_object_capture.json, image_count)", "≥ 90, ideally 140", "Rescan with a slower orbit"],
+        ["Coverage (manifest.json, quality.coverage_estimate)", "≥ 0.8 (suggested)", "Add the higher and lower passes; avoid gaps behind leaves"],
+        ["Plant stands upright after the ground fit", "upright", "Untick Y-up; crop away a tilted table or the background"],
+        ["Marker size after scaling", "within ±2 %", "Use ArUco scaling; check that the card is flat"],
+        ["Plant height vs ruler", "within 1 cm", "Check the scale; fit the ground plane on soil, not on leaves"],
+    ], [0.42, 0.2, 0.38]))
+    s.append(Spacer(1, 4))
+    s.append(KeepTogether(box("Good to know", [
+        "The app's on-device traits are a preliminary estimate. Use the PhenoForge results, and validate them against manual measurements "
+        "(Validation tab) before relying on them.",
+        "The app may warn that metric scale is not verified: that refers to the mesh. The splat cloud carries the camera-based scale. Still put a "
+        "card in view, because it is the only independent check.",
+        "Projected area and leaf area differ between the splat and the mesh because sparse leaf edges are treated differently. Compare a trait "
+        "only between scans analysed the same way.",
+        "The app reads any text in view as a possible tray label (in the test scan it read safety signs). Type the plant ID rather than relying on it.",
+        "Leaves and awns thinner than about 3 mm can be thickened or lost."], bg=AMBER)))
+    build("SOP-7_iPhonotype_app.pdf", "iphone", s)
+
+
 if __name__ == "__main__":
     overview()
     iphone()
@@ -512,3 +579,4 @@ if __name__ == "__main__":
     roots()
     turntable()
     spike()
+    iphonotype()
