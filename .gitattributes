@@ -1,0 +1,9 @@
+# Binary files must never have their line endings converted (that corrupts PDFs and models)
+*.pdf  binary
+*.png  binary
+*.jpg  binary
+*.ico  binary
+*.3mf  binary
+*.stl  binary
+*.ply  binary
+*.zip  binary
