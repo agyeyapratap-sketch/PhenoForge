@@ -4,8 +4,7 @@ Open-source 3D plant phenotyping for Windows (also runs on Linux and macOS from 
 MIT licence.
 
 PhenoForge is an independent reimplementation of the kind of workflow offered by
-portable 3D phenotyping studios such as iPhonotype Studio. It contains none of their code,
-assets or branding. See [FEATURES.md](FEATURES.md) for what is covered and what is not yet.
+portable 3D phenotyping studios such as iPhonotype Studio. See [FEATURES.md](FEATURES.md) for what is covered and what is not yet.
 
 [![Latest release](https://img.shields.io/github/v/release/agyeyapratap-sketch/PhenoForge?label=download)](https://github.com/agyeyapratap-sketch/PhenoForge/releases/latest)
 
